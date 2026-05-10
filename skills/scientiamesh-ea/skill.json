@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "id": "scientiamesh-ea",
+  "name": "scientiamesh-ea",
+  "title": "ScientiaMesh Executive Assistant",
+  "version": "0.1.0",
+  "description": "Executive-assistant workflows backed by ScientiaMesh durable memory and the smesh CLI.",
+  "entrypoint": "SKILL.md",
+  "compatible_smesh": ">=0.1.0 <1.0.0",
+  "compatible_api": {
+    "contract": "cli-v1-preview",
+    "requires_mesh_context": true,
+    "required_routes": [
+      "/api/cli/capture/text",
+      "/api/cli/search",
+      "/api/cli/ask",
+      "/api/cli/skills/set"
+    ]
+  },
+  "files": [
+    "SKILL.md",
+    "references/workflows.md",
+    "references/memory-contract.md"
+  ]
+}

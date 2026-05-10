@@ -1,0 +1,32 @@
+{
+  "backing_store": "github_releases",
+  "channel": "latest",
+  "checksums": {
+    "filename": "smesh-checksums.txt",
+    "sha256_url": "https://download.scientiamesh.app/smesh/latest/checksums.txt"
+  },
+  "commit_sha": "9a2a3619",
+  "download_base_url": "https://download.scientiamesh.app",
+  "generated_at": "2026-05-10T22:10:06Z",
+  "install": {
+    "script_url": "https://download.scientiamesh.app/install.sh",
+    "sha256": "1352900ac7999c63fbc85c846b599909295aec306bacb991bae7916b35abd155",
+    "sha256_url": "https://download.scientiamesh.app/install.sh.sha256"
+  },
+  "kind": "smesh-cli",
+  "name": "smesh",
+  "platforms": {
+    "linux-x64": {
+      "arch": "x64",
+      "filename": "smesh-linux-x64",
+      "os": "linux",
+      "rust_target": "x86_64-unknown-linux-gnu",
+      "sha256": "b345a940be4413e5732f8ec5c71f4909166999d39bc3abee063050c32fbc2e60",
+      "sha256_url": "https://download.scientiamesh.app/smesh/latest/linux-x64.sha256",
+      "url": "https://download.scientiamesh.app/smesh/latest/linux-x64",
+      "versioned_url": "https://download.scientiamesh.app/smesh/vpreview-9a2a3619/linux-x64"
+    }
+  },
+  "schema_version": 1,
+  "version": "preview-9a2a3619"
+}
