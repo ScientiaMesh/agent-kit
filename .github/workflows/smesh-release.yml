@@ -119,7 +119,8 @@ jobs:
             --skill-version "${{ steps.version.outputs.version }}" \
             --commit-sha "$GITHUB_SHA" \
             --download-base-url "$DOWNLOAD_BASE_URL" \
-            --skill-source skills/scientiamesh-ea
+            --skill-source skills/scientiamesh-ea \
+            --allow-missing-binaries
 
       - name: Publish moving latest GitHub release
         shell: bash

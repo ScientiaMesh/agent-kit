@@ -55,7 +55,7 @@ PLATFORMS = (
         filename="smesh-linux-x64",
     ),
     Platform(
-        slug="windows-x64.exe",
+        slug="windows-x64",
         os="windows",
         arch="x64",
         rust_target="x86_64-pc-windows-msvc",
@@ -126,10 +126,18 @@ def write_checksum(path: Path, digest: str, filename: str) -> None:
 
 
 def public_cli_url(base_url: str, channel: str, platform: Platform) -> str:
+    if "github.com" in base_url and "/releases/download/" in base_url:
+        return f"{base_url}/{platform.filename}"
     return f"{base_url}/smesh/{channel}/{platform.slug}"
 
 
 def public_skill_url(base_url: str, channel: str, suffix: str) -> str:
+    if "github.com" in base_url and "/releases/download/" in base_url:
+        if suffix == ".tar.gz":
+            return f"{base_url}/scientiamesh-ea-{channel}.tar.gz"
+        if suffix == "":
+            return f"{base_url}/scientiamesh-ea-{channel}"
+        return f"{base_url}/scientiamesh-ea-{channel}{suffix}"
     return f"{base_url}/skills/scientiamesh-ea/{channel}{suffix}"
 
 

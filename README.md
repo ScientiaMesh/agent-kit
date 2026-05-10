@@ -25,8 +25,8 @@ cp -R agent-kit/skills/scientiamesh-ea "$CODEX_HOME/skills/"
 Or download the packaged skill bundle:
 
 ```bash
-curl -fsSLO https://download.scientiamesh.app/skills/scientiamesh-ea/latest.tar.gz
-tar -xzf latest.tar.gz
+curl -fsSLO https://github.com/ScientiaMesh/agent-kit/releases/download/smesh-latest/scientiamesh-ea-latest.tar.gz
+tar -xzf scientiamesh-ea-latest.tar.gz
 ```
 
 ## Contents
@@ -40,13 +40,13 @@ tar -xzf latest.tar.gz
 
 ## Stable URLs
 
-- CLI manifest: `https://download.scientiamesh.app/smesh/latest.json`
-- CLI installer: `https://download.scientiamesh.app/install.sh`
 - GitHub release: `https://github.com/ScientiaMesh/agent-kit/releases/tag/smesh-latest`
-- EA skill manifest: `https://download.scientiamesh.app/skills/scientiamesh-ea/latest.json`
-- EA skill bundle: `https://download.scientiamesh.app/skills/scientiamesh-ea/latest.tar.gz`
+- CLI manifest: `https://github.com/ScientiaMesh/agent-kit/releases/download/smesh-latest/smesh-latest.json`
+- CLI installer: `https://raw.githubusercontent.com/ScientiaMesh/agent-kit/main/install.sh`
+- EA skill manifest: `https://github.com/ScientiaMesh/agent-kit/releases/download/smesh-latest/scientiamesh-ea-latest.json`
+- EA skill bundle: `https://github.com/ScientiaMesh/agent-kit/releases/download/smesh-latest/scientiamesh-ea-latest.tar.gz`
 
 ## Status
 
-The Linux x64 `smesh` binary is currently published. macOS and Windows binaries
-are expected to be produced by GitHub Actions release automation.
+The public release channel currently publishes Linux x64, macOS arm64, and
+Windows x64 binaries.

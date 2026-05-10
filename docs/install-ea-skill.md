@@ -24,8 +24,8 @@ cp -R agent-kit/skills/scientiamesh-ea "$CODEX_HOME/skills/"
 ## From Bundle
 
 ```bash
-curl -fsSLO https://download.scientiamesh.app/skills/scientiamesh-ea/latest.tar.gz
-tar -xzf latest.tar.gz
+curl -fsSLO https://github.com/ScientiaMesh/agent-kit/releases/download/smesh-latest/scientiamesh-ea-latest.tar.gz
+tar -xzf scientiamesh-ea-latest.tar.gz
 ```
 
 The extracted folder is:
@@ -37,5 +37,5 @@ scientiamesh-ea/
 ## Manifest
 
 ```text
-https://download.scientiamesh.app/skills/scientiamesh-ea/latest.json
+https://github.com/ScientiaMesh/agent-kit/releases/download/smesh-latest/scientiamesh-ea-latest.json
 ```
