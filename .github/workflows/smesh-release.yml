@@ -1,0 +1,133 @@
+name: smesh release
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - Cargo.toml
+      - Cargo.lock
+      - apps/cli-rust/**
+      - skills/scientiamesh-ea/**
+      - scripts/**
+      - install.sh
+      - .github/workflows/smesh-release.yml
+
+permissions:
+  contents: write
+
+env:
+  DOWNLOAD_BASE_URL: https://github.com/ScientiaMesh/agent-kit/releases/download/smesh-latest
+
+jobs:
+  build-cli:
+    name: Build ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-x64
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            filename: smesh-linux-x64
+            exe: ""
+            smoke: true
+          - platform: macos-arm64
+            os: macos-latest
+            target: aarch64-apple-darwin
+            filename: smesh-macos-arm64
+            exe: ""
+            smoke: true
+          - platform: windows-x64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            filename: smesh-windows-x64.exe
+            exe: ".exe"
+            smoke: true
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust target
+        shell: bash
+        run: rustup target add "${{ matrix.target }}"
+
+      - name: Build release binary
+        run: cargo build --release -p smesh-rs --target "${{ matrix.target }}"
+
+      - name: Stage binary
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp "target/${{ matrix.target }}/release/smesh${{ matrix.exe }}" \
+            "dist/${{ matrix.filename }}"
+          if [[ "${{ matrix.exe }}" == "" ]]; then
+            chmod +x "dist/${{ matrix.filename }}"
+          fi
+
+      - name: Smoke test binary
+        if: matrix.smoke
+        shell: bash
+        run: ./dist/${{ matrix.filename }} --version
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.filename }}
+          path: dist/${{ matrix.filename }}
+          if-no-files-found: error
+
+  publish:
+    name: Publish release assets
+    runs-on: ubuntu-latest
+    needs: build-cli
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Resolve release version
+        id: version
+        shell: bash
+        run: |
+          version="$(
+            python3 -c 'import tomllib; from pathlib import Path; print(tomllib.load(Path("apps/cli-rust/Cargo.toml").open("rb"))["package"]["version"])'
+          )"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Download platform artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-downloads
+
+      - name: Flatten artifacts
+        shell: bash
+        run: |
+          mkdir -p release-assets
+          find release-downloads -maxdepth 3 -type f -print \
+            -exec cp {} release-assets/ \;
+          ls -la release-assets
+
+      - name: Generate manifests and checksums
+        run: |
+          python3 scripts/package_smesh_distribution.py \
+            --assets-dir release-assets \
+            --output-dir release-assets \
+            --version "${{ steps.version.outputs.version }}" \
+            --skill-version "${{ steps.version.outputs.version }}" \
+            --commit-sha "$GITHUB_SHA" \
+            --download-base-url "$DOWNLOAD_BASE_URL" \
+            --skill-source skills/scientiamesh-ea
+
+      - name: Publish moving latest GitHub release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete smesh-latest --yes || true
+          gh release create smesh-latest release-assets/* \
+            --title "smesh latest" \
+            --notes "Auto-updated latest smesh CLI and ScientiaMesh EA skill assets." \
+            --prerelease

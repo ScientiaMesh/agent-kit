@@ -15,23 +15,22 @@ source-linked memory in ScientiaMesh.
 Install or update the Rust CLI before using this skill:
 
 ```bash
-curl -fsSL https://download.scientiamesh.app/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/ScientiaMesh/agent-kit/main/install.sh | sh
 ```
 
 Agents that need to select a platform themselves should read the public
 manifest:
 
 ```bash
-curl -fsSL https://download.scientiamesh.app/smesh/latest.json
+curl -fsSL https://github.com/ScientiaMesh/agent-kit/releases/download/smesh-latest/smesh-latest.json
 ```
 
 Direct platform URLs use this shape:
 
 ```text
-https://download.scientiamesh.app/smesh/latest/linux-x64
-https://download.scientiamesh.app/smesh/latest/macos-arm64
-https://download.scientiamesh.app/smesh/latest/macos-x64
-https://download.scientiamesh.app/smesh/latest/windows-x64.exe
+https://github.com/ScientiaMesh/agent-kit/releases/download/smesh-latest/smesh-linux-x64
+https://github.com/ScientiaMesh/agent-kit/releases/download/smesh-latest/smesh-macos-arm64
+https://github.com/ScientiaMesh/agent-kit/releases/download/smesh-latest/smesh-windows-x64.exe
 ```
 
 After installation, confirm the CLI is available:

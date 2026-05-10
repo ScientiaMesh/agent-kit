@@ -8,10 +8,10 @@ durable memory.
 
 ## Quick Start
 
-Install the `smesh` CLI:
+Install the `smesh` CLI from the public GitHub release:
 
 ```bash
-curl -fsSL https://download.scientiamesh.app/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/ScientiaMesh/agent-kit/main/install.sh | sh
 smesh --version
 ```
 
@@ -42,6 +42,7 @@ tar -xzf latest.tar.gz
 
 - CLI manifest: `https://download.scientiamesh.app/smesh/latest.json`
 - CLI installer: `https://download.scientiamesh.app/install.sh`
+- GitHub release: `https://github.com/ScientiaMesh/agent-kit/releases/tag/smesh-latest`
 - EA skill manifest: `https://download.scientiamesh.app/skills/scientiamesh-ea/latest.json`
 - EA skill bundle: `https://download.scientiamesh.app/skills/scientiamesh-ea/latest.tar.gz`
 

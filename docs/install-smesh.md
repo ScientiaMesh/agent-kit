@@ -6,7 +6,7 @@ memory.
 ## Auto Installer
 
 ```bash
-curl -fsSL https://download.scientiamesh.app/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/ScientiaMesh/agent-kit/main/install.sh | sh
 smesh --version
 ```
 
@@ -15,7 +15,7 @@ By default, the installer writes to `$HOME/.local/bin/smesh`.
 Override the install location:
 
 ```bash
-SMESH_INSTALL_DIR="$HOME/bin" curl -fsSL https://download.scientiamesh.app/install.sh | sh
+SMESH_INSTALL_DIR="$HOME/bin" curl -fsSL https://raw.githubusercontent.com/ScientiaMesh/agent-kit/main/install.sh | sh
 ```
 
 ## Platform Manifest
@@ -23,25 +23,24 @@ SMESH_INSTALL_DIR="$HOME/bin" curl -fsSL https://download.scientiamesh.app/insta
 Agents should read this manifest when selecting a binary programmatically:
 
 ```text
-https://download.scientiamesh.app/smesh/latest.json
+https://github.com/ScientiaMesh/agent-kit/releases/download/smesh-latest/smesh-latest.json
 ```
 
 ## Direct Downloads
 
 ```text
-https://download.scientiamesh.app/smesh/latest/linux-x64
-https://download.scientiamesh.app/smesh/latest/macos-arm64
-https://download.scientiamesh.app/smesh/latest/macos-x64
-https://download.scientiamesh.app/smesh/latest/windows-x64.exe
+https://github.com/ScientiaMesh/agent-kit/releases/download/smesh-latest/smesh-linux-x64
+https://github.com/ScientiaMesh/agent-kit/releases/download/smesh-latest/smesh-macos-arm64
+https://github.com/ScientiaMesh/agent-kit/releases/download/smesh-latest/smesh-windows-x64.exe
 ```
 
-Only Linux x64 is currently mirrored. macOS and Windows binaries require the
-cross-platform release workflow to publish assets.
+The stable `download.scientiamesh.app` URLs may mirror these GitHub release
+assets, but the GitHub release is the canonical public distribution source.
 
 ## Verify Checksums
 
 ```bash
-curl -fsSLO https://download.scientiamesh.app/smesh/latest/linux-x64
-curl -fsSLO https://download.scientiamesh.app/smesh/latest/linux-x64.sha256
-sha256sum -c linux-x64.sha256
+curl -fsSLO https://github.com/ScientiaMesh/agent-kit/releases/download/smesh-latest/smesh-linux-x64
+curl -fsSLO https://github.com/ScientiaMesh/agent-kit/releases/download/smesh-latest/smesh-linux-x64.sha256
+sha256sum -c smesh-linux-x64.sha256
 ```
