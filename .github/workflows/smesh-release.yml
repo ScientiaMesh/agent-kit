@@ -96,6 +96,10 @@ jobs:
             python3 -c 'import tomllib; from pathlib import Path; print(tomllib.load(Path("apps/cli-rust/Cargo.toml").open("rb"))["package"]["version"])'
           )"
           echo "version=${version}" >> "$GITHUB_OUTPUT"
+          skill_version="$(
+            python3 -c 'import json; from pathlib import Path; print(json.loads(Path("skills/scientiamesh-ea/skill.json").read_text())["version"])'
+          )"
+          echo "skill_version=${skill_version}" >> "$GITHUB_OUTPUT"
 
       - name: Download platform artifacts
         uses: actions/download-artifact@v4
@@ -116,7 +120,7 @@ jobs:
             --assets-dir release-assets \
             --output-dir release-assets \
             --version "${{ steps.version.outputs.version }}" \
-            --skill-version "${{ steps.version.outputs.version }}" \
+            --skill-version "${{ steps.version.outputs.skill_version }}" \
             --commit-sha "$GITHUB_SHA" \
             --download-base-url "$DOWNLOAD_BASE_URL" \
             --skill-source skills/scientiamesh-ea \

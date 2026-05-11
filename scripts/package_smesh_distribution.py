@@ -405,7 +405,7 @@ def main() -> int:
     parser.add_argument(
         "--skill-source",
         type=Path,
-        default=ROOT / "agent-skills" / "scientiamesh-ea",
+        default=ROOT / "skills" / "scientiamesh-ea",
     )
     parser.add_argument(
         "--allow-missing-binaries",

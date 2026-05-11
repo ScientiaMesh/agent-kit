@@ -3,8 +3,8 @@
   "id": "scientiamesh-ea",
   "name": "scientiamesh-ea",
   "title": "ScientiaMesh Executive Assistant",
-  "version": "0.1.0",
-  "description": "Executive-assistant workflows backed by ScientiaMesh durable memory and the smesh CLI.",
+  "version": "0.1.1",
+  "description": "High-trust executive-assistant workflows backed by ScientiaMesh memory, first-class EA tools, assertions, briefs, contacts, preferences, and source-linked provenance.",
   "entrypoint": "SKILL.md",
   "compatible_smesh": ">=0.1.0 <1.0.0",
   "compatible_api": {
@@ -14,12 +14,22 @@
       "/api/cli/capture/text",
       "/api/cli/search",
       "/api/cli/ask",
-      "/api/cli/skills/set"
+      "/api/cli/skills/set",
+      "/api/assistant/tasks",
+      "/api/assistant/reminders",
+      "/api/assistant/contacts",
+      "/api/assistant/preferences",
+      "/api/assistant/briefs"
     ]
   },
   "files": [
     "SKILL.md",
-    "references/workflows.md",
-    "references/memory-contract.md"
+    "references/assertion-workflows.md",
+    "references/fallbacks-before-ea-tools.md",
+    "references/human-ea-judgment.md",
+    "references/operating-playbooks.md",
+    "references/preference-taxonomy.md",
+    "references/scientiamesh-ea-tool-contract.md",
+    "scripts/smesh_ea_status.py"
   ]
 }
