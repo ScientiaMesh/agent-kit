@@ -3,7 +3,7 @@
   "id": "scientiamesh-ea",
   "name": "scientiamesh-ea",
   "title": "ScientiaMesh Executive Assistant",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "High-trust executive-assistant workflows backed by ScientiaMesh memory, first-class EA tools, assertions, briefs, contacts, preferences, and source-linked provenance.",
   "entrypoint": "SKILL.md",
   "compatible_smesh": ">=0.1.0 <1.0.0",
@@ -19,7 +19,11 @@
       "/api/assistant/reminders",
       "/api/assistant/contacts",
       "/api/assistant/preferences",
-      "/api/assistant/briefs"
+      "/api/assistant/briefs",
+      "/api/assistant/projects",
+      "/api/assistant/assertions",
+      "/api/assistant/task-assertions",
+      "/api/assistant/source-links"
     ]
   },
   "files": [

@@ -202,11 +202,12 @@ Agent-first tools should include both canonical CRUD and assertion queue managem
 Project assertions:
 
 ```bash
-smesh project-assertions list --status pending --mesh-id <mesh-id> --json
-smesh project-assertions confirm <id> --mesh-id <mesh-id> [--name <canonical-name>]
-smesh project-assertions attach <id> --project-id <project-id> --mesh-id <mesh-id>
-smesh project-assertions deny <id> --reason <text> --mesh-id <mesh-id>
-smesh project-assertions merge <id> --into <other-id-or-project-id> --mesh-id <mesh-id>
+smesh assertions list --kind project --status pending --mesh-id <mesh-id> --json
+smesh assertions confirm <id> --mesh-id <mesh-id> [--title <canonical-title>]
+smesh assertions attach <id> --target-project-id <project-id> --mesh-id <mesh-id>
+smesh assertions deny <id> --reason <text> --mesh-id <mesh-id>
+smesh assertions merge <id> --target-project-id <project-id> --mesh-id <mesh-id>
+smesh assertions delegate <id> --to-agent <agent-id> --mesh-id <mesh-id>
 ```
 
 Task assertions:
@@ -216,18 +217,26 @@ smesh task-assertions list --status pending --mesh-id <mesh-id> --json
 smesh task-assertions confirm <id> --mesh-id <mesh-id> [--project-id <project-id>]
 smesh task-assertions deny <id> --reason <text> --mesh-id <mesh-id>
 smesh task-assertions merge <id> --task-id <task-id> --mesh-id <mesh-id>
-smesh task-assertions delegate-triage --to-agent <agent-id> --scope <scope> --mesh-id <mesh-id>
+smesh task-assertions attach-project <id> --project-id <project-id> --mesh-id <mesh-id>
+smesh task-assertions attach-project <id> --project-assertion-id <assertion-id> --mesh-id <mesh-id>
+smesh task-assertions delegate <id> --to-agent <agent-id> --mesh-id <mesh-id>
+smesh task-assertions bulk-review --input review-actions.json --mesh-id <mesh-id>
 ```
 
 MCP tools should mirror these with names such as:
 
-- `smesh_project_assertions_list`
-- `smesh_project_assertions_confirm`
-- `smesh_project_assertions_deny`
+- `smesh_assertions_list`
+- `smesh_assertions_confirm`
+- `smesh_assertions_deny`
+- `smesh_assertions_attach`
+- `smesh_assertions_merge`
+- `smesh_assertions_delegate`
 - `smesh_task_assertions_list`
 - `smesh_task_assertions_confirm`
 - `smesh_task_assertions_deny`
-- `smesh_task_assertions_delegate_triage`
+- `smesh_task_assertions_attach_project`
+- `smesh_task_assertions_delegate`
+- `smesh_task_assertions_bulk_review`
 
 ## Delegating Assertion Management To Agents
 

@@ -15,8 +15,45 @@ import sys
 from datetime import datetime, timezone
 from typing import Any
 
-EA_SUBCOMMANDS = ["tasks", "reminders", "contacts", "preferences", "briefs", "calendar"]
+EA_SUBCOMMANDS = [
+    "projects",
+    "assertions",
+    "task-assertions",
+    "tasks",
+    "reminders",
+    "contacts",
+    "preferences",
+    "briefs",
+    "calendar",
+    "source-links",
+]
 EXPECTED_MCP_TOOLS = {
+    "projects": [
+        "smesh_projects_create",
+        "smesh_projects_list",
+        "smesh_projects_get",
+        "smesh_projects_update",
+        "smesh_projects_archive",
+    ],
+    "assertions": [
+        "smesh_assertions_list",
+        "smesh_assertions_get",
+        "smesh_assertions_confirm",
+        "smesh_assertions_deny",
+        "smesh_assertions_merge",
+        "smesh_assertions_attach",
+        "smesh_assertions_delegate",
+    ],
+    "task-assertions": [
+        "smesh_task_assertions_list",
+        "smesh_task_assertions_get",
+        "smesh_task_assertions_confirm",
+        "smesh_task_assertions_deny",
+        "smesh_task_assertions_merge",
+        "smesh_task_assertions_delegate",
+        "smesh_task_assertions_attach_project",
+        "smesh_task_assertions_bulk_review",
+    ],
     "tasks": [
         "smesh_tasks_create",
         "smesh_tasks_list",
@@ -66,6 +103,11 @@ EXPECTED_MCP_TOOLS = {
         "smesh_calendar_events_get",
         "smesh_calendar_events_upsert",
     ],
+    "source-links": [
+        "smesh_source_links_add",
+        "smesh_source_links_list",
+        "smesh_source_links_remove",
+    ],
 }
 
 
@@ -109,13 +151,17 @@ def build_suggestions(mesh_id: str | None) -> dict[str, list[str]]:
             f"smesh --json reminders due-soon --mesh-id {mesh} --window PT24H",
             f"smesh --json briefs daily --mesh-id {mesh} --date YYYY-MM-DD",
         ],
+        "assertion_review": [
+            f"smesh --json assertions list --mesh-id {mesh} --kind project --status pending --limit 20",
+            f"smesh --json task-assertions list --mesh-id {mesh} --status pending --limit 20",
+        ],
         "meeting_prep": [
             f"smesh --json calendar events list --mesh-id {mesh} --from <iso-ts> --to <iso-ts>",
             f"smesh --json briefs meeting-prep <event-id> --mesh-id {mesh}",
         ],
         "fallback_retrieval": [
-            f"smesh context get --agent Pixel --meshid {mesh}",
-            "smesh topics query --topic scientiamesh --topic pixel --recent --format compact --summary",
+            f"smesh --json --mesh-id {mesh} topics query --topic scientiamesh --topic pixel --recent --limit 25",
+            f"smesh --json --mesh-id {mesh} topics activity --topic scientiamesh --topic pixel",
         ],
     }
 
@@ -158,14 +204,14 @@ def main() -> int:
             }
         )
 
-        available_count = 0
+        missing: list[str] = []
         for sub in EA_SUBCOMMANDS:
             hinted = has_subcommand(root_help, sub)
             sub_help = run_cmd([smesh_path, sub, "--help"])
             output = (sub_help.get("stdout") or "") + "\n" + (sub_help.get("stderr") or "")
             available = bool(sub_help["ok"] or hinted)
-            if available:
-                available_count += 1
+            if not available:
+                missing.append(sub)
             result["cli"]["subcommands"][sub] = {
                 "available": available,
                 "help_returncode": sub_help["returncode"],
@@ -178,10 +224,11 @@ def main() -> int:
             "available": bool(assistant_help["ok"] and "import-markdown" in ((assistant_help.get("stdout") or "") + (assistant_help.get("stderr") or ""))),
             "help_returncode": assistant_help["returncode"],
         }
-        result["ea_cli_available"] = available_count == len(EA_SUBCOMMANDS)
+        result["ea_cli_available"] = not missing
+        result["cli"]["missing_subcommands"] = missing
         if result["ea_cli_available"]:
             result["recommendation"] = "Use first-class `smesh --json` EA commands as the operational source of truth."
-        elif available_count:
+        elif len(missing) < len(EA_SUBCOMMANDS):
             result["recommendation"] = "Use available first-class commands, and use fallback ScientiaMesh capture/retrieval for missing surfaces."
         else:
             result["recommendation"] = "SCI-92 EA CLI commands are not present yet; use the fallback ScientiaMesh memory workflow with migration breadcrumbs."

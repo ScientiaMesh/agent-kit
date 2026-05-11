@@ -7,7 +7,7 @@ Use this only when first-class EA commands/MCP tools are unavailable. The goal i
 Run:
 
 ```bash
-python3 /home/pixel/.openclaw/workspace/skills/scientiamesh-ea/scripts/smesh_ea_status.py --mesh-id <mesh-id>
+python3 scripts/smesh_ea_status.py --mesh-id <mesh-id>
 ```
 
 If it reports missing commands, use the fallbacks below.
@@ -16,25 +16,20 @@ If it reports missing commands, use the fallbacks below.
 
 Use existing ScientiaMesh retrieval before local markdown when possible.
 
-Pixel default patterns:
+Current CLI-safe patterns:
 
 ```bash
-smesh context get --agent Pixel --meshid <mesh-id>
-smesh topics query --topic scientiamesh --topic pixel --recent --format compact --summary
-smesh topics activity --topic scientiamesh --format compact
+smesh --json --mesh-id <mesh-id> topics query --topic scientiamesh --topic pixel --recent --limit 25
+smesh --json --mesh-id <mesh-id> topics activity --topic scientiamesh --topic pixel
 ```
 
 For a project:
 
 ```bash
-smesh topics query --topic scientiamesh --topic pixel --topic project/scientiamesh --recent --format compact --summary
+smesh --json --mesh-id <mesh-id> topics query --topic scientiamesh --topic pixel --topic project/scientiamesh --match all --recent --limit 25
 ```
 
-For deeper grouping:
-
-```bash
-smesh topics query --topic scientiamesh --recent --format compact --group-by node_type
-```
+For narrower or broader retrieval, vary the repeated `--topic` values, `--match any|all`, `--since`, `--until`, `--limit`, and `--sort relevance|recent`. Do grouping or summarization in the agent response from the JSON result; current `smesh topics` does not provide `--format`, `--summary`, or `--group-by` flags.
 
 If ScientiaMesh retrieval fails or is thin, use workspace docs that are explicitly source-of-truth for that domain, then local memory files as a fallback.
 

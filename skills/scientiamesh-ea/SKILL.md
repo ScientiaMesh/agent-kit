@@ -18,7 +18,7 @@ The goal is not to do more busywork. The goal is to maintain a living operationa
    - In group chats, retrieve only what is safe to reveal in that group.
 3. Check whether SCI-92 EA tools are available before relying on them:
    - Run `scripts/smesh_ea_status.py --mesh-id <mesh-id>` when tool availability is uncertain.
-   - If `smesh tasks|reminders|contacts|preferences|briefs|calendar` or matching MCP tools exist, use them as source of truth.
+   - If `smesh projects|assertions|task-assertions|tasks|reminders|contacts|preferences|briefs|calendar|source-links` or matching MCP tools exist, use them as source of truth.
    - If they do not exist yet, use the fallback workflow in `references/fallbacks-before-ea-tools.md` and leave clean provenance for migration.
 4. Convert intent into durable state: use direct canonical CRUD when the user is explicit and the agent has mesh authority; use assertions for synapse/internal inference or low-confidence candidate facts awaiting user/agent confirmation.
 5. Reply concisely with what changed, what is blocked, and what the user needs to decide, if anything.
@@ -98,7 +98,7 @@ Read `references/operating-playbooks.md` for heartbeat thresholds.
 
 Prefer tools in this order:
 
-1. First-class MCP EA tools when present: `smesh_tasks_*`, `smesh_reminders_*`, `smesh_contacts_*`, `smesh_preferences_*`, `smesh_briefs_*`, `smesh_calendar_*`.
+1. First-class MCP EA tools when present: `smesh_projects_*`, `smesh_assertions_*`, `smesh_task_assertions_*`, `smesh_tasks_*`, `smesh_reminders_*`, `smesh_contacts_*`, `smesh_preferences_*`, `smesh_briefs_*`, `smesh_calendar_*`, `smesh_source_links_*`.
 2. First-class `smesh` CLI EA commands with `--json`.
 3. Existing ScientiaMesh memory/topic capture and retrieval, with tags and source refs.
 4. Local workspace memory files only as a fallback or migration source, respecting private/shared-context rules.
