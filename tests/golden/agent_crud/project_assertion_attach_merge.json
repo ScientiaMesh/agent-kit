@@ -1,0 +1,96 @@
+{
+  "ok": true,
+  "data": {
+    "assertion": {
+      "id": "d7cb9480-444c-4c9c-a6ad-96d896cf3437",
+      "kind": "project",
+      "mesh_id": "mesh-1",
+      "owner_user_id": "user-1",
+      "review_status": "merged",
+      "candidate_title": "ACME FY26 Renewal",
+      "candidate_slug": "acme-fy26-renewal",
+      "candidate_summary": "Recurring work around the FY26 renewal.",
+      "candidate_status": null,
+      "candidate_visibility": "mesh",
+      "primary_org_name": null,
+      "primary_org_id": null,
+      "parent_project_id": null,
+      "suggested_project_id": null,
+      "resolved_project_id": "project_existing",
+      "confidence": 0.88,
+      "source_refs": [
+        {
+          "type": "source_node",
+          "id": "source-merge"
+        }
+      ],
+      "evidence_text": "The ACME renewal needs a workstream.",
+      "evidence_span": null,
+      "evidence_type": "meeting_note",
+      "source_ref": "source_node:source-merge",
+      "evidence_hash": "b6f628361bfa397186c4c7e0b9e9a1d7997ce283f4b0fa23c2d29ade4cc23fd8",
+      "inferred_by_actor": {
+        "type": "synapse",
+        "id": "project_extractor@1.0.0"
+      },
+      "delegated_to_actor": null,
+      "delegated_at": null,
+      "resolved_by_actor": {
+        "type": "agent",
+        "id": "pixel"
+      },
+      "resolved_at": "2026-05-09T13:20:00Z",
+      "resolution_reason": "Same renewal workstream.",
+      "resolution_metadata": {
+        "action": "merge",
+        "merge_mode": "attach_only",
+        "project_id": "project_existing"
+      },
+      "first_seen_at": "2026-05-09T13:20:00Z",
+      "last_seen_at": "2026-05-09T13:20:00Z",
+      "created_at": "2026-05-09T13:20:00Z",
+      "updated_at": "2026-05-09T13:20:00Z"
+    },
+    "project": {
+      "id": "project_existing",
+      "mesh_id": "mesh-1",
+      "owner_user_id": "user-1",
+      "slug": "acme-renewal",
+      "title": "ACME Renewal",
+      "summary": null,
+      "status": "active",
+      "visibility": "private",
+      "primary_org_id": null,
+      "parent_project_id": null,
+      "merged_into_project_id": null,
+      "started_at": null,
+      "target_end_at": null,
+      "completed_at": null,
+      "tags": [],
+      "source_refs": [
+        {
+          "type": "conversation",
+          "id": "convo-1"
+        },
+        {
+          "type": "source_node",
+          "id": "source-merge"
+        }
+      ],
+      "metadata": {},
+      "created_at": "2026-05-09T13:20:00Z",
+      "updated_at": "2026-05-09T13:20:00Z",
+      "archived_at": null
+    }
+  },
+  "meta": {
+    "request_id": "req_merge_assertion",
+    "mesh_id": "mesh-1",
+    "warnings": [],
+    "actor": {
+      "type": "agent",
+      "id": "pixel"
+    },
+    "idempotency_key": "pixel:assertion:merge"
+  }
+}

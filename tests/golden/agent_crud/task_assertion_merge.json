@@ -1,0 +1,98 @@
+{
+  "ok": true,
+  "data": {
+    "assertion": {
+      "id": "a7cb9480-444c-4c9c-a6ad-96d896cf3437",
+      "kind": "task",
+      "mesh_id": "mesh-1",
+      "owner_user_id": "user-1",
+      "status": "merged",
+      "title": "Send ACME renewal brief",
+      "description": "Draft the renewal brief for ACME.",
+      "evidence_summary": "Please send the ACME renewal brief by Tuesday.",
+      "confidence": 0.91,
+      "asserted_by": {
+        "type": "synapse",
+        "id": "task_extractor@1.0.0"
+      },
+      "source_refs": [
+        {
+          "type": "source_node",
+          "id": "task-merge"
+        }
+      ],
+      "priority_hint": "high",
+      "due_at_hint": "2026-05-12T21:00:00Z",
+      "assignee_hint": null,
+      "project_ref": null,
+      "dedupe_key": "mesh:mesh-1|synapse:task_extractor@1.0.0|source:task-merge|task:send-acme-renewal-brief|due:2026-05-12T21:00:00Z",
+      "duplicate_of_assertion_id": null,
+      "canonical_task_id": "22222222-2222-4222-8222-222222222222",
+      "delegated_review_to": null,
+      "delegated_review_note": null,
+      "resolution": {
+        "action": "merge",
+        "reason": "Same task from meeting notes.",
+        "note": null,
+        "canonical_task_id": "22222222-2222-4222-8222-222222222222"
+      },
+      "resolved_by_actor": {
+        "type": "agent",
+        "id": "pixel"
+      },
+      "resolved_at": "2026-05-09T13:20:00Z",
+      "triage_labels": [
+        "renewal"
+      ],
+      "evidence_hash": "c74613dc2a596c233db6a4c54f7998b7398008a12291271a36aa23af2cdfae5d",
+      "first_seen_at": "2026-05-09T13:20:00Z",
+      "last_seen_at": "2026-05-09T13:20:00Z",
+      "created_at": "2026-05-09T13:20:00Z",
+      "updated_at": "2026-05-09T13:20:00Z"
+    },
+    "task": {
+      "id": "22222222-2222-4222-8222-222222222222",
+      "mesh_id": "mesh-1",
+      "owner_user_id": "user-1",
+      "title": "Send renewal brief",
+      "description": "Draft the renewal brief for ACME.",
+      "status": "backlog",
+      "priority": "normal",
+      "due_at": "2026-05-12T21:00:00Z",
+      "start_at": null,
+      "timezone": null,
+      "recurrence": null,
+      "assignee_user_id": null,
+      "project_id": null,
+      "delegated_to": null,
+      "delegation_status": null,
+      "stale_at": null,
+      "tags": [],
+      "source_refs": [
+        {
+          "type": "conversation",
+          "id": "convo-1"
+        },
+        {
+          "type": "source_node",
+          "id": "task-merge"
+        }
+      ],
+      "confidence": 1.0,
+      "created_via": "api",
+      "created_at": "2026-05-09T13:20:00Z",
+      "updated_at": "2026-05-09T13:20:00Z",
+      "completed_at": null
+    }
+  },
+  "meta": {
+    "request_id": "req_merge_task_assertion",
+    "mesh_id": "mesh-1",
+    "warnings": [],
+    "actor": {
+      "type": "agent",
+      "id": "pixel"
+    },
+    "idempotency_key": "pixel:task-assertion:merge"
+  }
+}

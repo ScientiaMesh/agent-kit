@@ -1,0 +1,93 @@
+{
+  "ok": true,
+  "data": {
+    "assertion": {
+      "id": "d7cb9480-444c-4c9c-a6ad-96d896cf3435",
+      "kind": "project",
+      "mesh_id": "mesh-1",
+      "owner_user_id": "user-1",
+      "review_status": "confirmed",
+      "candidate_title": "ACME Renewal",
+      "candidate_slug": "acme-renewal",
+      "candidate_summary": "Recurring work around the FY26 renewal.",
+      "candidate_status": null,
+      "candidate_visibility": "mesh",
+      "primary_org_name": null,
+      "primary_org_id": null,
+      "parent_project_id": null,
+      "suggested_project_id": null,
+      "resolved_project_id": "project_acme_from_assertion",
+      "confidence": 0.88,
+      "source_refs": [
+        {
+          "type": "source_node",
+          "id": "source-1"
+        }
+      ],
+      "evidence_text": "The ACME renewal needs a workstream.",
+      "evidence_span": null,
+      "evidence_type": "meeting_note",
+      "source_ref": "source_node:source-1",
+      "evidence_hash": "8c3053f6ddc61f50f6e9a80566c17b878ccc1e5f050991a69d8e618fba90e8fc",
+      "inferred_by_actor": {
+        "type": "synapse",
+        "id": "project_extractor@1.0.0"
+      },
+      "delegated_to_actor": null,
+      "delegated_at": null,
+      "resolved_by_actor": {
+        "type": "agent",
+        "id": "pixel"
+      },
+      "resolved_at": "2026-05-09T13:20:00Z",
+      "resolution_reason": null,
+      "resolution_metadata": {
+        "action": "confirm",
+        "project_id": "project_acme_from_assertion"
+      },
+      "first_seen_at": "2026-05-09T13:20:00Z",
+      "last_seen_at": "2026-05-09T13:20:00Z",
+      "created_at": "2026-05-09T13:20:00Z",
+      "updated_at": "2026-05-09T13:20:00Z"
+    },
+    "project": {
+      "id": "project_acme_from_assertion",
+      "mesh_id": "mesh-1",
+      "owner_user_id": "user-1",
+      "slug": "acme-renewal",
+      "title": "ACME Renewal",
+      "summary": "Recurring work around the FY26 renewal.",
+      "status": "active",
+      "visibility": "mesh",
+      "primary_org_id": null,
+      "parent_project_id": null,
+      "merged_into_project_id": null,
+      "started_at": null,
+      "target_end_at": null,
+      "completed_at": null,
+      "tags": [],
+      "source_refs": [
+        {
+          "type": "source_node",
+          "id": "source-1"
+        }
+      ],
+      "metadata": {
+        "seed_assertion_id": "d7cb9480-444c-4c9c-a6ad-96d896cf3435"
+      },
+      "created_at": "2026-05-09T13:20:00Z",
+      "updated_at": "2026-05-09T13:20:00Z",
+      "archived_at": null
+    }
+  },
+  "meta": {
+    "request_id": "req_confirm_assertion",
+    "mesh_id": "mesh-1",
+    "warnings": [],
+    "actor": {
+      "type": "agent",
+      "id": "pixel"
+    },
+    "idempotency_key": "pixel:assertion:acme:confirm"
+  }
+}

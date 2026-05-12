@@ -8,6 +8,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use clap::{ArgAction, Args, Parser, Subcommand, ValueEnum};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Map, Value};
+use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 pub const BINARY_NAME: &str = "smesh";
@@ -18,6 +19,7 @@ pub const DEFAULT_AUTH_CLIENT_ID: &str = "j2jfu9tV6OcGft0C8UPiy3soszr3149L";
 pub const DEFAULT_CONFIG_PATH: &str = "~/.config/scientiamesh/config.json";
 const USER_AGENT: &str = concat!("smesh-rs/", env!("CARGO_PKG_VERSION"));
 const RETRIEVAL_SCHEMA_VERSION: u8 = 1;
+const AGENT_PORTABLE_SCHEMA_VERSION: u8 = 1;
 
 #[derive(Debug, Parser)]
 #[command(
@@ -217,6 +219,12 @@ pub enum Commands {
         command: AuthCommands,
     },
 
+    #[command(about = "Bootstrap or save portable agent workspace state.")]
+    Agent {
+        #[command(subcommand)]
+        command: AgentCommands,
+    },
+
     #[command(about = "Inspect queued or completed jobs.")]
     Jobs {
         #[command(subcommand)]
@@ -363,6 +371,34 @@ pub struct AuthLoginArgs {
         help = "Auth0 audience to store with the profile."
     )]
     pub auth_audience: Option<String>,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum AgentCommands {
+    #[command(about = "Restore portable agent context into this workspace.")]
+    Init(AgentInitArgs),
+
+    #[command(about = "Save portable agent Markdown state from this workspace.")]
+    Save(AgentSaveArgs),
+}
+
+#[derive(Debug, Args)]
+pub struct AgentInitArgs {
+    #[arg(value_name = "AGENT_NAME", help = "Canonical agent name to restore.")]
+    pub name: String,
+
+    #[arg(
+        long = "override",
+        action = ArgAction::SetTrue,
+        help = "Replace existing local files with mesh-stored artifacts."
+    )]
+    pub override_existing: bool,
+}
+
+#[derive(Debug, Args)]
+pub struct AgentSaveArgs {
+    #[arg(value_name = "AGENT_NAME", help = "Canonical agent name to save.")]
+    pub name: String,
 }
 
 #[derive(Debug, Subcommand)]
@@ -1382,6 +1418,12 @@ pub enum ContactCommands {
         command: ContactLinkCommands,
     },
 
+    #[command(about = "Manage contact relationships.")]
+    Relationships {
+        #[command(subcommand)]
+        command: ContactRelationshipCommands,
+    },
+
     #[command(name = "open-loops", about = "List open loops by contact.")]
     OpenLoops {
         #[command(subcommand)]
@@ -1394,6 +1436,9 @@ pub enum ContactPeopleCommands {
     Create(ContactPersonCreateArgs),
     List(ContactListArgs),
     Get(ContactGetArgs),
+    Update(ContactPersonUpdateArgs),
+    Archive(ContactArchiveArgs),
+    Merge(ContactMergeArgs),
     Note {
         #[command(subcommand)]
         command: ContactNoteCommands,
@@ -1410,11 +1455,21 @@ pub enum ContactOrgCommands {
     Create(ContactOrgCreateArgs),
     List(ContactListArgs),
     Get(StatusGetArgs),
+    Update(ContactOrgUpdateArgs),
+    Archive(ContactArchiveArgs),
+    Merge(ContactMergeArgs),
 }
 
 #[derive(Debug, Subcommand)]
 pub enum ContactLinkCommands {
     Add(ContactLinkAddArgs),
+}
+
+#[derive(Debug, Subcommand)]
+pub enum ContactRelationshipCommands {
+    Add(ContactRelationshipAddArgs),
+    List(ContactRelationshipListArgs),
+    Remove(ContactRelationshipRemoveArgs),
 }
 
 #[derive(Debug, Subcommand)]
@@ -1474,6 +1529,81 @@ pub struct ContactGetArgs {
 }
 
 #[derive(Debug, Args)]
+pub struct ContactPersonUpdateArgs {
+    #[arg(value_name = "PERSON_ID")]
+    pub id: String,
+
+    #[arg(long = "name", value_name = "NAME")]
+    pub name: Option<String>,
+
+    #[arg(long = "email", value_name = "EMAIL")]
+    pub email: Option<String>,
+
+    #[arg(long = "org", value_name = "ORG_ID")]
+    pub org: Option<String>,
+
+    #[arg(long = "role", value_name = "TEXT")]
+    pub role: Option<String>,
+
+    #[arg(long = "timezone", value_name = "TZ")]
+    pub timezone: Option<String>,
+
+    #[arg(long = "preferred-channel", value_name = "CHANNEL")]
+    pub preferred_channel: Option<String>,
+
+    #[command(flatten)]
+    pub write: AgentWriteArgs,
+}
+
+#[derive(Debug, Args)]
+pub struct ContactOrgUpdateArgs {
+    #[arg(value_name = "ORG_ID")]
+    pub id: String,
+
+    #[arg(long = "name", value_name = "NAME")]
+    pub name: Option<String>,
+
+    #[arg(long = "domain", value_name = "DOMAIN")]
+    pub domain: Option<String>,
+
+    #[arg(long = "website", value_name = "URL")]
+    pub website: Option<String>,
+
+    #[arg(long = "summary", value_name = "TEXT")]
+    pub summary: Option<String>,
+
+    #[command(flatten)]
+    pub write: AgentWriteArgs,
+}
+
+#[derive(Debug, Args)]
+pub struct ContactArchiveArgs {
+    #[arg(value_name = "CONTACT_ID")]
+    pub id: String,
+
+    #[arg(long, value_name = "TEXT")]
+    pub reason: Option<String>,
+
+    #[command(flatten)]
+    pub write: AgentWriteArgs,
+}
+
+#[derive(Debug, Args)]
+pub struct ContactMergeArgs {
+    #[arg(value_name = "CONTACT_ID")]
+    pub id: String,
+
+    #[arg(long = "into", value_name = "CONTACT_ID")]
+    pub into: String,
+
+    #[arg(long, value_name = "TEXT")]
+    pub reason: Option<String>,
+
+    #[command(flatten)]
+    pub write: AgentWriteArgs,
+}
+
+#[derive(Debug, Args)]
 pub struct ContactNoteAddArgs {
     #[arg(value_name = "PERSON_ID")]
     pub id: String,
@@ -1498,6 +1628,39 @@ pub struct ContactLinkAddArgs {
 
     #[arg(long = "source-id", value_name = "ID")]
     pub source_id: String,
+
+    #[command(flatten)]
+    pub write: AgentWriteArgs,
+}
+
+#[derive(Debug, Args)]
+pub struct ContactRelationshipAddArgs {
+    #[arg(long = "from", value_name = "CONTACT_ID")]
+    pub from_contact_id: String,
+
+    #[arg(long = "to", value_name = "TARGET_ID")]
+    pub to: String,
+
+    #[arg(long = "type", value_name = "RELATIONSHIP_TYPE")]
+    pub relationship_type: String,
+
+    #[arg(long = "source-id", value_name = "ID")]
+    pub source_id: Option<String>,
+
+    #[command(flatten)]
+    pub write: AgentWriteArgs,
+}
+
+#[derive(Debug, Args)]
+pub struct ContactRelationshipListArgs {
+    #[arg(value_name = "CONTACT_ID")]
+    pub id: String,
+}
+
+#[derive(Debug, Args)]
+pub struct ContactRelationshipRemoveArgs {
+    #[arg(value_name = "RELATIONSHIP_ID")]
+    pub id: String,
 
     #[command(flatten)]
     pub write: AgentWriteArgs,
@@ -2069,9 +2232,103 @@ struct TopicActivityRowOutput {
     count: usize,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct AgentPortableManifest {
+    schema_version: u8,
+    agent_name: String,
+    agent_id: String,
+    generated_at_unix_seconds: i64,
+    mesh_id: Option<String>,
+    workspace: AgentWorkspaceMetadata,
+    index: AgentIndexArtifact,
+    artifacts: Vec<AgentManifestArtifact>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+struct AgentWorkspaceMetadata {
+    path: Option<String>,
+    host: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct AgentIndexArtifact {
+    path: String,
+    kind: String,
+    format: String,
+    content: String,
+    sha256: String,
+    generated_at_unix_seconds: i64,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct AgentManifestArtifact {
+    path: String,
+    kind: String,
+    format: String,
+    content: String,
+    sha256: String,
+    size_bytes: usize,
+    captured_at_unix_seconds: i64,
+    source: AgentArtifactSource,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+struct AgentArtifactSource {
+    workspace_path: Option<String>,
+    host: Option<String>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+struct AgentFileOutput {
+    path: String,
+    kind: String,
+    sha256: String,
+    bytes: usize,
+    status: String,
+    reason: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct AgentInitOutput {
+    schema_version: u8,
+    operation_id: String,
+    status: &'static str,
+    action: &'static str,
+    agent_name: String,
+    agent_id: String,
+    mesh_id: String,
+    index_path: String,
+    override_existing: bool,
+    created_agent: bool,
+    agent_version: Option<String>,
+    synapse_task_id: Option<String>,
+    artifacts_total: usize,
+    restored: Vec<AgentFileOutput>,
+    skipped: Vec<AgentFileOutput>,
+    warnings: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct AgentSaveOutput {
+    schema_version: u8,
+    operation_id: String,
+    status: &'static str,
+    action: &'static str,
+    agent_name: String,
+    agent_id: String,
+    mesh_id: String,
+    index_path: String,
+    agent_version: Option<String>,
+    synapse_task_id: Option<String>,
+    artifacts_saved: usize,
+    artifacts: Vec<AgentFileOutput>,
+    warnings: Vec<String>,
+}
+
 pub fn run(cli: Cli) -> Result<String, CliError> {
     match &cli.command {
         Commands::Auth { command } => render_auth_command(&cli, command),
+        Commands::Agent { command } => render_agent_command(&cli, command),
         Commands::Jobs { command } => render_job_command(&cli, command),
         Commands::Capture { command } => render_capture_command(&cli, command),
         Commands::Search(args) => render_search_command(&cli, args),
@@ -2105,6 +2362,873 @@ pub fn render_version(mode: OutputMode) -> Result<String, CliError> {
             Ok(format!("{}\n", serde_json::to_string(&event)?))
         }
     }
+}
+
+fn render_agent_command(cli: &Cli, command: &AgentCommands) -> Result<String, CliError> {
+    match command {
+        AgentCommands::Init(args) => render_agent_init(cli, args),
+        AgentCommands::Save(args) => render_agent_save(cli, args),
+    }
+}
+
+fn render_agent_init(cli: &Cli, args: &AgentInitArgs) -> Result<String, CliError> {
+    let agent_name = normalize_agent_name(&args.name)?;
+    let agent_id = agent_name.clone();
+    let workspace_root = current_workspace_dir()?;
+    let context = remote_context(cli, true)?;
+    let mesh_id = context
+        .mesh_id
+        .clone()
+        .filter(|mesh_id| !mesh_id.is_empty())
+        .ok_or_else(|| {
+            CliError::config(
+                "Missing mesh context. Pass --mesh-id, set SMESH_MESH_ID, or store mesh_id in the selected profile.",
+            )
+        })?;
+
+    let mut warnings = Vec::new();
+    let (agent_response, created_agent) =
+        match get_agent_registry_manifest(&context, &agent_id, &mesh_id)? {
+            Some(value) => (value, false),
+            None => {
+                let manifest =
+                    empty_agent_manifest(&agent_name, &agent_id, &mesh_id, &workspace_root);
+                (
+                    set_agent_registry_manifest(&context, &manifest, &mesh_id)?,
+                    true,
+                )
+            }
+        };
+
+    let mut manifest = manifest_from_agent_response(
+        &agent_response,
+        &agent_name,
+        &agent_id,
+        &mesh_id,
+        &workspace_root,
+        &mut warnings,
+    )?;
+    ensure_agent_index(
+        &mut manifest,
+        &agent_name,
+        &agent_id,
+        &mesh_id,
+        &workspace_root,
+    );
+    resolve_safe_agent_path(&workspace_root, &manifest.index.path)?;
+    for artifact in &manifest.artifacts {
+        resolve_safe_agent_path(&workspace_root, &artifact.path)?;
+    }
+
+    let mut restored = Vec::new();
+    let mut skipped = Vec::new();
+    let index_result = write_agent_workspace_file(
+        &workspace_root,
+        &manifest.index.path,
+        &manifest.index.kind,
+        &manifest.index.content,
+        args.override_existing,
+    )?;
+    if index_result.status == "skipped" {
+        skipped.push(index_result);
+    } else {
+        restored.push(index_result);
+    }
+
+    for artifact in &manifest.artifacts {
+        if artifact.format != "md" {
+            warnings.push(format!(
+                "Skipped non-Markdown artifact `{}` with format `{}`.",
+                artifact.path, artifact.format
+            ));
+            continue;
+        }
+        let actual_sha = sha256_hex(artifact.content.as_bytes());
+        if !artifact.sha256.is_empty() && artifact.sha256 != actual_sha {
+            warnings.push(format!(
+                "Artifact `{}` content hash differed from manifest metadata.",
+                artifact.path
+            ));
+        }
+        let result = write_agent_workspace_file(
+            &workspace_root,
+            &artifact.path,
+            &artifact.kind,
+            &artifact.content,
+            args.override_existing,
+        )?;
+        if result.status == "skipped" {
+            skipped.push(result);
+        } else {
+            restored.push(result);
+        }
+    }
+
+    let output = AgentInitOutput {
+        schema_version: AGENT_PORTABLE_SCHEMA_VERSION,
+        operation_id: local_operation_id("agent.init"),
+        status: "ok",
+        action: "agent.init",
+        agent_name,
+        agent_id,
+        mesh_id,
+        index_path: manifest.index.path.clone(),
+        override_existing: args.override_existing,
+        created_agent,
+        agent_version: registry_response_string(&agent_response, "version"),
+        synapse_task_id: registry_response_string(&agent_response, "synapse_task_id"),
+        artifacts_total: manifest.artifacts.len(),
+        restored,
+        skipped,
+        warnings,
+    };
+
+    render_agent_output(
+        cli.effective_output(),
+        "agent.init",
+        render_agent_init_human(&output),
+        &output,
+    )
+}
+
+fn render_agent_save(cli: &Cli, args: &AgentSaveArgs) -> Result<String, CliError> {
+    let agent_name = normalize_agent_name(&args.name)?;
+    let agent_id = agent_name.clone();
+    let workspace_root = current_workspace_dir()?;
+    let context = remote_context(cli, true)?;
+    let mesh_id = context
+        .mesh_id
+        .clone()
+        .filter(|mesh_id| !mesh_id.is_empty())
+        .ok_or_else(|| {
+            CliError::config(
+                "Missing mesh context. Pass --mesh-id, set SMESH_MESH_ID, or store mesh_id in the selected profile.",
+            )
+        })?;
+
+    let artifacts = discover_agent_markdown_artifacts(&workspace_root)?;
+    let mut manifest =
+        manifest_from_artifacts(&agent_name, &agent_id, &mesh_id, &workspace_root, artifacts);
+    ensure_agent_index(
+        &mut manifest,
+        &agent_name,
+        &agent_id,
+        &mesh_id,
+        &workspace_root,
+    );
+    write_generated_agent_index(&workspace_root, &manifest.index)?;
+
+    let response = set_agent_registry_manifest(&context, &manifest, &mesh_id)?;
+    let artifact_outputs = manifest
+        .artifacts
+        .iter()
+        .map(|artifact| AgentFileOutput {
+            path: artifact.path.clone(),
+            kind: artifact.kind.clone(),
+            sha256: artifact.sha256.clone(),
+            bytes: artifact.size_bytes,
+            status: "saved".to_string(),
+            reason: None,
+        })
+        .collect::<Vec<_>>();
+
+    let output = AgentSaveOutput {
+        schema_version: AGENT_PORTABLE_SCHEMA_VERSION,
+        operation_id: local_operation_id("agent.save"),
+        status: "ok",
+        action: "agent.save",
+        agent_name,
+        agent_id,
+        mesh_id,
+        index_path: manifest.index.path.clone(),
+        agent_version: registry_response_string(&response, "version"),
+        synapse_task_id: registry_response_string(&response, "synapse_task_id"),
+        artifacts_saved: artifact_outputs.len(),
+        artifacts: artifact_outputs,
+        warnings: Vec::new(),
+    };
+
+    render_agent_output(
+        cli.effective_output(),
+        "agent.save",
+        render_agent_save_human(&output),
+        &output,
+    )
+}
+
+fn render_agent_output<T: Serialize>(
+    mode: OutputMode,
+    event_type: &'static str,
+    human: String,
+    output: &T,
+) -> Result<String, CliError> {
+    match mode {
+        OutputMode::Human => Ok(human),
+        OutputMode::Json => Ok(format!("{}\n", serde_json::to_string(output)?)),
+        OutputMode::Ndjson => {
+            let mut event = match serde_json::to_value(output)? {
+                Value::Object(map) => map,
+                other => {
+                    let mut map = Map::new();
+                    map.insert("payload".to_string(), other);
+                    map
+                }
+            };
+            event.insert("type".to_string(), Value::String(event_type.to_string()));
+            Ok(format!("{}\n", serde_json::to_string(&event)?))
+        }
+    }
+}
+
+fn render_agent_init_human(output: &AgentInitOutput) -> String {
+    let mut lines = vec![format!("Agent {} initialized.", output.agent_name)];
+    lines.push(format!("Index: {}", output.index_path));
+    lines.push(format!("Artifacts in mesh: {}", output.artifacts_total));
+    lines.push(format!("Restored: {}", output.restored.len()));
+    lines.push(format!("Skipped: {}", output.skipped.len()));
+    if output.override_existing {
+        lines.push("Override: existing local files were eligible for replacement.".to_string());
+    }
+    if let Some(version) = output.agent_version.as_deref() {
+        lines.push(format!("Agent registry version: {version}"));
+    }
+    for warning in &output.warnings {
+        lines.push(format!("Warning: {warning}"));
+    }
+    lines.push(String::new());
+    lines.join("\n")
+}
+
+fn render_agent_save_human(output: &AgentSaveOutput) -> String {
+    let mut lines = vec![format!("Agent {} saved.", output.agent_name)];
+    lines.push(format!("Index: {}", output.index_path));
+    lines.push(format!("Artifacts saved: {}", output.artifacts_saved));
+    if let Some(version) = output.agent_version.as_deref() {
+        lines.push(format!("Agent registry version: {version}"));
+    }
+    if let Some(task_id) = output.synapse_task_id.as_deref() {
+        lines.push(format!("Projection task: {task_id}"));
+    }
+    for warning in &output.warnings {
+        lines.push(format!("Warning: {warning}"));
+    }
+    lines.push(String::new());
+    lines.join("\n")
+}
+
+fn get_agent_registry_manifest(
+    context: &RemoteContext,
+    agent_id: &str,
+    mesh_id: &str,
+) -> Result<Option<Value>, CliError> {
+    let query = vec![
+        ("agent_id".to_string(), agent_id.to_string()),
+        ("mesh_id".to_string(), mesh_id.to_string()),
+    ];
+    let primary_path = path_with_query("/api/cli/agent/get", &query);
+    let fallback_path = path_with_query("/v1/agent/get", &query);
+
+    match get_json(context, &primary_path) {
+        Ok(value) => Ok(Some(value)),
+        Err(error) if registry_not_found(&error, "agent not found") => Ok(None),
+        Err(error) if matches!(error.status(), Some(404 | 405)) => {
+            match get_json(context, &fallback_path) {
+                Ok(value) => Ok(Some(value)),
+                Err(fallback_error) if fallback_error.status() == Some(404) => Ok(None),
+                Err(fallback_error) => Err(fallback_error),
+            }
+        }
+        Err(error) => Err(error),
+    }
+}
+
+fn registry_not_found(error: &CliError, expected_message: &str) -> bool {
+    error.status() == Some(404)
+        && error
+            .machine_message()
+            .to_ascii_lowercase()
+            .contains(expected_message)
+}
+
+fn set_agent_registry_manifest(
+    context: &RemoteContext,
+    manifest: &AgentPortableManifest,
+    mesh_id: &str,
+) -> Result<Value, CliError> {
+    let content = serde_json::to_string_pretty(manifest)?;
+    let payload = json!({
+        "agent_id": manifest.agent_id,
+        "mesh_id": mesh_id,
+        "format": "json",
+        "content": content,
+    });
+    post_json_with_fallback(context, "/api/cli/agent/set", "/v1/agent/set", payload)
+}
+
+fn manifest_from_agent_response(
+    response: &Value,
+    agent_name: &str,
+    agent_id: &str,
+    mesh_id: &str,
+    workspace_root: &Path,
+    warnings: &mut Vec<String>,
+) -> Result<AgentPortableManifest, CliError> {
+    let content = registry_response_string(response, "content").unwrap_or_default();
+    if content.trim().is_empty() {
+        warnings
+            .push("Mesh agent state is empty; generated an index with no artifacts.".to_string());
+        return Ok(empty_agent_manifest(
+            agent_name,
+            agent_id,
+            mesh_id,
+            workspace_root,
+        ));
+    }
+
+    match serde_json::from_str::<AgentPortableManifest>(&content) {
+        Ok(mut manifest) => {
+            manifest.agent_name = agent_name.to_string();
+            manifest.agent_id = agent_id.to_string();
+            manifest.mesh_id = Some(mesh_id.to_string());
+            Ok(manifest)
+        }
+        Err(error) => {
+            let format = registry_response_string(response, "format").unwrap_or_default();
+            if format == "json" {
+                warnings.push(format!(
+                    "Mesh agent state was not a portable manifest ({error}); generated an index with no artifacts."
+                ));
+                Ok(empty_agent_manifest(
+                    agent_name,
+                    agent_id,
+                    mesh_id,
+                    workspace_root,
+                ))
+            } else {
+                warnings
+                    .push("Loaded legacy agent content as the portable index only.".to_string());
+                let mut manifest =
+                    empty_agent_manifest(agent_name, agent_id, mesh_id, workspace_root);
+                manifest.index.content = content;
+                manifest.index.sha256 = sha256_hex(manifest.index.content.as_bytes());
+                Ok(manifest)
+            }
+        }
+    }
+}
+
+fn manifest_from_artifacts(
+    agent_name: &str,
+    agent_id: &str,
+    mesh_id: &str,
+    workspace_root: &Path,
+    artifacts: Vec<AgentManifestArtifact>,
+) -> AgentPortableManifest {
+    let generated_at = now_unix_seconds();
+    let workspace = agent_workspace_metadata(workspace_root);
+    let index_path = agent_index_path(agent_name);
+    let index = AgentIndexArtifact {
+        path: index_path,
+        kind: "index".to_string(),
+        format: "md".to_string(),
+        content: String::new(),
+        sha256: String::new(),
+        generated_at_unix_seconds: generated_at,
+    };
+
+    AgentPortableManifest {
+        schema_version: AGENT_PORTABLE_SCHEMA_VERSION,
+        agent_name: agent_name.to_string(),
+        agent_id: agent_id.to_string(),
+        generated_at_unix_seconds: generated_at,
+        mesh_id: Some(mesh_id.to_string()),
+        workspace,
+        index,
+        artifacts,
+    }
+}
+
+fn empty_agent_manifest(
+    agent_name: &str,
+    agent_id: &str,
+    mesh_id: &str,
+    workspace_root: &Path,
+) -> AgentPortableManifest {
+    manifest_from_artifacts(agent_name, agent_id, mesh_id, workspace_root, Vec::new())
+}
+
+fn ensure_agent_index(
+    manifest: &mut AgentPortableManifest,
+    agent_name: &str,
+    agent_id: &str,
+    mesh_id: &str,
+    workspace_root: &Path,
+) {
+    if manifest.index.path.trim().is_empty() {
+        manifest.index.path = agent_index_path(agent_name);
+    }
+    manifest.index.kind = "index".to_string();
+    manifest.index.format = "md".to_string();
+    if manifest.workspace.path.is_none() && manifest.workspace.host.is_none() {
+        manifest.workspace = agent_workspace_metadata(workspace_root);
+    }
+    if manifest.index.generated_at_unix_seconds <= 0 {
+        manifest.index.generated_at_unix_seconds = now_unix_seconds();
+    }
+    if manifest.index.content.trim().is_empty() {
+        manifest.index.content = render_agent_index_content(
+            agent_name,
+            agent_id,
+            mesh_id,
+            manifest.generated_at_unix_seconds,
+            &manifest.workspace,
+            &manifest.artifacts,
+        );
+    }
+    manifest.index.sha256 = sha256_hex(manifest.index.content.as_bytes());
+}
+
+fn render_agent_index_content(
+    agent_name: &str,
+    agent_id: &str,
+    mesh_id: &str,
+    generated_at: i64,
+    workspace: &AgentWorkspaceMetadata,
+    artifacts: &[AgentManifestArtifact],
+) -> String {
+    let mut lines = vec![
+        format!("# {agent_name} Portable Agent Index"),
+        String::new(),
+        "This file is generated by `smesh agent save` and restored by `smesh agent init`."
+            .to_string(),
+        String::new(),
+        format!("- Agent ID: `{agent_id}`"),
+        format!("- Mesh ID: `{mesh_id}`"),
+        format!("- Generated at Unix seconds: `{generated_at}`"),
+    ];
+    if let Some(path) = workspace.path.as_deref() {
+        lines.push(format!("- Source workspace: `{path}`"));
+    }
+    if let Some(host) = workspace.host.as_deref() {
+        lines.push(format!("- Source host: `{host}`"));
+    }
+    lines.push(String::new());
+    lines.push("## Artifacts".to_string());
+    if artifacts.is_empty() {
+        lines.push(String::new());
+        lines.push("No portable Markdown artifacts are stored for this agent yet.".to_string());
+    } else {
+        lines.push(String::new());
+        for artifact in artifacts {
+            lines.push(format!(
+                "- `{}` ({}, sha256 `{}`)",
+                artifact.path, artifact.kind, artifact.sha256
+            ));
+        }
+    }
+    lines.push(String::new());
+    lines.join("\n")
+}
+
+fn discover_agent_markdown_artifacts(
+    workspace_root: &Path,
+) -> Result<Vec<AgentManifestArtifact>, CliError> {
+    let mut discovered = BTreeMap::<PathBuf, String>::new();
+    for (path, kind) in [
+        ("SOUL.md", "identity"),
+        ("AGENTS.md", "operating_doc"),
+        ("CLAUDE.md", "operating_doc"),
+        ("MEMORY.md", "memory"),
+        ("USER.md", "user_profile"),
+        ("TOOLS.md", "tools"),
+    ] {
+        let rel = PathBuf::from(path);
+        if workspace_root.join(&rel).is_file() {
+            discovered.insert(rel, kind.to_string());
+        }
+    }
+
+    collect_markdown_under(workspace_root, Path::new(".codex/skills"), &mut discovered)?;
+    collect_markdown_under(workspace_root, Path::new("skills"), &mut discovered)?;
+    collect_markdown_under(workspace_root, Path::new("references"), &mut discovered)?;
+    collect_markdown_under(workspace_root, Path::new("docs/agents"), &mut discovered)?;
+    collect_markdown_under(workspace_root, Path::new("docs/skills"), &mut discovered)?;
+    collect_markdown_under(workspace_root, Path::new(".claude"), &mut discovered)?;
+    collect_markdown_under(workspace_root, Path::new(".cursor/rules"), &mut discovered)?;
+
+    let now = now_unix_seconds();
+    let source = AgentArtifactSource {
+        workspace_path: Some(workspace_root.display().to_string()),
+        host: host_identity(),
+    };
+    let mut artifacts = Vec::new();
+    for (relative_path, kind) in discovered {
+        let path = workspace_root.join(&relative_path);
+        let content = fs::read_to_string(&path).map_err(|error| {
+            CliError::config(format!(
+                "Failed to read agent artifact {}: {error}",
+                path.display()
+            ))
+        })?;
+        let portable_path = portable_path_string(&relative_path)?;
+        let bytes = content.len();
+        artifacts.push(AgentManifestArtifact {
+            path: portable_path,
+            kind,
+            format: "md".to_string(),
+            sha256: sha256_hex(content.as_bytes()),
+            size_bytes: bytes,
+            captured_at_unix_seconds: now,
+            source: source.clone(),
+            content,
+        });
+    }
+
+    Ok(artifacts)
+}
+
+fn collect_markdown_under(
+    workspace_root: &Path,
+    relative_dir: &Path,
+    discovered: &mut BTreeMap<PathBuf, String>,
+) -> Result<(), CliError> {
+    let dir = workspace_root.join(relative_dir);
+    if !dir.exists() {
+        return Ok(());
+    }
+    if !dir.is_dir() {
+        return Ok(());
+    }
+    for entry in fs::read_dir(&dir).map_err(|error| {
+        CliError::config(format!(
+            "Failed to scan agent artifact directory {}: {error}",
+            dir.display()
+        ))
+    })? {
+        let entry = entry.map_err(|error| {
+            CliError::config(format!(
+                "Failed to read agent artifact entry in {}: {error}",
+                dir.display()
+            ))
+        })?;
+        let file_type = entry.file_type().map_err(|error| {
+            CliError::config(format!(
+                "Failed to inspect agent artifact {}: {error}",
+                entry.path().display()
+            ))
+        })?;
+        let relative_path = relative_dir.join(entry.file_name());
+        if file_type.is_dir() {
+            collect_markdown_under(workspace_root, &relative_path, discovered)?;
+        } else if file_type.is_file() && is_markdown_path(&relative_path) {
+            discovered
+                .entry(relative_path.clone())
+                .or_insert_with(|| artifact_kind_for_path(&relative_path));
+        }
+    }
+    Ok(())
+}
+
+fn write_generated_agent_index(
+    workspace_root: &Path,
+    index: &AgentIndexArtifact,
+) -> Result<(), CliError> {
+    let path = resolve_safe_agent_path(workspace_root, &index.path)?;
+    if let Some(parent) = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        fs::create_dir_all(parent).map_err(|error| {
+            CliError::config(format!(
+                "Failed to create directory for {}: {error}",
+                path.display()
+            ))
+        })?;
+    }
+    ensure_safe_agent_write_target(workspace_root, &path, &index.path)?;
+    fs::write(&path, index.content.as_bytes()).map_err(|error| {
+        CliError::config(format!(
+            "Failed to write generated agent index {}: {error}",
+            path.display()
+        ))
+    })
+}
+
+fn write_agent_workspace_file(
+    workspace_root: &Path,
+    relative_path: &str,
+    kind: &str,
+    content: &str,
+    override_existing: bool,
+) -> Result<AgentFileOutput, CliError> {
+    let path = resolve_safe_agent_path(workspace_root, relative_path)?;
+    let existed = path.exists();
+    let sha256 = sha256_hex(content.as_bytes());
+    let bytes = content.len();
+
+    if let Some(parent) = path
+        .parent()
+        .filter(|parent| !parent.as_os_str().is_empty())
+    {
+        fs::create_dir_all(parent).map_err(|error| {
+            CliError::config(format!(
+                "Failed to create directory for {}: {error}",
+                path.display()
+            ))
+        })?;
+    }
+    ensure_safe_agent_write_target(workspace_root, &path, relative_path)?;
+
+    if existed && !override_existing {
+        return Ok(AgentFileOutput {
+            path: relative_path.to_string(),
+            kind: kind.to_string(),
+            sha256,
+            bytes,
+            status: "skipped".to_string(),
+            reason: Some("exists".to_string()),
+        });
+    }
+
+    fs::write(&path, content.as_bytes()).map_err(|error| {
+        CliError::config(format!(
+            "Failed to write agent artifact {}: {error}",
+            path.display()
+        ))
+    })?;
+
+    Ok(AgentFileOutput {
+        path: relative_path.to_string(),
+        kind: kind.to_string(),
+        sha256,
+        bytes,
+        status: if existed { "overwritten" } else { "restored" }.to_string(),
+        reason: None,
+    })
+}
+
+fn ensure_safe_agent_write_target(
+    workspace_root: &Path,
+    path: &Path,
+    relative_path: &str,
+) -> Result<(), CliError> {
+    let workspace_root = workspace_root.canonicalize().map_err(|error| {
+        CliError::config(format!(
+            "Failed to resolve agent workspace root {}: {error}",
+            workspace_root.display()
+        ))
+    })?;
+    let parent = path.parent().ok_or_else(|| {
+        CliError::config(format!(
+            "Unsafe agent artifact path `{relative_path}`: missing parent directory."
+        ))
+    })?;
+    let parent = parent.canonicalize().map_err(|error| {
+        CliError::config(format!(
+            "Failed to resolve parent directory for agent artifact `{relative_path}`: {error}"
+        ))
+    })?;
+    if !parent.starts_with(&workspace_root) {
+        return Err(CliError::config(format!(
+            "Unsafe agent artifact path `{relative_path}`: resolved parent escapes the workspace."
+        )));
+    }
+
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.file_type().is_symlink() => Err(CliError::config(format!(
+            "Unsafe agent artifact path `{relative_path}`: symlink targets are not allowed."
+        ))),
+        Ok(_) => Ok(()),
+        Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(error) => Err(CliError::config(format!(
+            "Failed to inspect agent artifact `{relative_path}` before writing: {error}"
+        ))),
+    }
+}
+
+fn resolve_safe_agent_path(
+    workspace_root: &Path,
+    relative_path: &str,
+) -> Result<PathBuf, CliError> {
+    let trimmed = relative_path.trim();
+    if trimmed.is_empty() {
+        return Err(CliError::config("Unsafe agent artifact path: empty path."));
+    }
+    if trimmed.contains('\\') {
+        return Err(CliError::config(format!(
+            "Unsafe agent artifact path `{relative_path}`: backslashes are not portable."
+        )));
+    }
+
+    let path = Path::new(trimmed);
+    if path.is_absolute() {
+        return Err(CliError::config(format!(
+            "Unsafe agent artifact path `{relative_path}`: absolute paths are not allowed."
+        )));
+    }
+
+    let mut normalized = PathBuf::new();
+    let mut first_component = true;
+    for component in path.components() {
+        match component {
+            std::path::Component::Normal(part) => {
+                if first_component && part == OsStr::new(".git") {
+                    return Err(CliError::config(format!(
+                        "Unsafe agent artifact path `{relative_path}`: .git paths are not allowed."
+                    )));
+                }
+                first_component = false;
+                normalized.push(part);
+            }
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                return Err(CliError::config(format!(
+                    "Unsafe agent artifact path `{relative_path}`: parent traversal is not allowed."
+                )));
+            }
+            std::path::Component::RootDir | std::path::Component::Prefix(_) => {
+                return Err(CliError::config(format!(
+                    "Unsafe agent artifact path `{relative_path}`: rooted paths are not allowed."
+                )));
+            }
+        }
+    }
+
+    if normalized.as_os_str().is_empty() {
+        return Err(CliError::config(format!(
+            "Unsafe agent artifact path `{relative_path}`: empty normalized path."
+        )));
+    }
+    Ok(workspace_root.join(normalized))
+}
+
+fn portable_path_string(path: &Path) -> Result<String, CliError> {
+    let mut parts = Vec::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::Normal(part) => {
+                let part = part.to_str().ok_or_else(|| {
+                    CliError::config(format!(
+                        "Agent artifact path {} is not valid UTF-8.",
+                        path.display()
+                    ))
+                })?;
+                parts.push(part.to_string());
+            }
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir
+            | std::path::Component::RootDir
+            | std::path::Component::Prefix(_) => {
+                return Err(CliError::config(format!(
+                    "Unsafe agent artifact path {}.",
+                    path.display()
+                )));
+            }
+        }
+    }
+    if parts.is_empty() {
+        return Err(CliError::config("Agent artifact path is empty."));
+    }
+    Ok(parts.join("/"))
+}
+
+fn is_markdown_path(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .map(|extension| matches!(extension.to_ascii_lowercase().as_str(), "md" | "markdown"))
+        .unwrap_or(false)
+}
+
+fn artifact_kind_for_path(path: &Path) -> String {
+    let path_text = portable_path_string(path).unwrap_or_else(|_| path.display().to_string());
+    if path_text.contains("/references/") || path_text.starts_with("references/") {
+        "reference".to_string()
+    } else if path_text.contains("/skills/")
+        || path_text.starts_with("skills/")
+        || path_text.starts_with(".codex/skills/")
+    {
+        "skill".to_string()
+    } else if path_text.starts_with(".claude/") || path_text.starts_with(".cursor/rules/") {
+        "operating_doc".to_string()
+    } else {
+        "reference".to_string()
+    }
+}
+
+fn agent_index_path(agent_name: &str) -> String {
+    format!(".agent-{}.md", agent_slug(agent_name))
+}
+
+fn agent_slug(agent_name: &str) -> String {
+    let mut slug = String::new();
+    let mut last_dash = false;
+    for ch in agent_name.chars() {
+        if ch.is_ascii_alphanumeric() {
+            slug.push(ch.to_ascii_lowercase());
+            last_dash = false;
+        } else if !last_dash && !slug.is_empty() {
+            slug.push('-');
+            last_dash = true;
+        }
+    }
+    while slug.ends_with('-') {
+        slug.pop();
+    }
+    if slug.is_empty() {
+        "agent".to_string()
+    } else {
+        slug
+    }
+}
+
+fn normalize_agent_name(name: &str) -> Result<String, CliError> {
+    let normalized = name.trim();
+    if normalized.is_empty() {
+        return Err(CliError::config("agent name is required."));
+    }
+    Ok(normalized.to_string())
+}
+
+fn current_workspace_dir() -> Result<PathBuf, CliError> {
+    std::env::current_dir()
+        .map_err(|error| CliError::config(format!("Failed to resolve current workspace: {error}")))
+}
+
+fn agent_workspace_metadata(workspace_root: &Path) -> AgentWorkspaceMetadata {
+    AgentWorkspaceMetadata {
+        path: Some(workspace_root.display().to_string()),
+        host: host_identity(),
+    }
+}
+
+fn host_identity() -> Option<String> {
+    for name in ["SMESH_HOST_ID", "HOSTNAME", "COMPUTERNAME"] {
+        if let Ok(value) = std::env::var(name) {
+            let value = value.trim();
+            if !value.is_empty() {
+                return Some(value.to_string());
+            }
+        }
+    }
+    None
+}
+
+fn registry_response_string(value: &Value, key: &str) -> Option<String> {
+    value
+        .get(key)
+        .and_then(scalar_string)
+        .filter(|text| !text.is_empty())
+}
+
+fn sha256_hex(content: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(content);
+    let digest = hasher.finalize();
+    let mut output = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        output.push_str(&format!("{byte:02x}"));
+    }
+    output
 }
 
 fn render_job_command(cli: &Cli, command: &JobCommands) -> Result<String, CliError> {
@@ -3204,6 +4328,70 @@ fn render_contact_command(cli: &Cli, command: &ContactCommands) -> Result<String
                     value,
                 )
             }
+            ContactPeopleCommands::Update(args) => {
+                let mut payload = Map::new();
+                insert_optional_string(&mut payload, "name", args.name.as_deref());
+                insert_optional_string(&mut payload, "email", args.email.as_deref());
+                insert_optional_string(&mut payload, "org", args.org.as_deref());
+                insert_optional_string(&mut payload, "role", args.role.as_deref());
+                insert_optional_string(&mut payload, "timezone", args.timezone.as_deref());
+                insert_optional_string(
+                    &mut payload,
+                    "preferred_channel",
+                    args.preferred_channel.as_deref(),
+                );
+                insert_agent_write_fields(&mut payload, &args.write)?;
+                let value = post_assistant_json(
+                    cli,
+                    &format!("/api/cli/contacts/people/{}", encode_path_segment(&args.id)),
+                    Value::Object(payload),
+                )?;
+                render_assistant_value(
+                    cli.effective_output(),
+                    "contacts.people.update",
+                    "Person",
+                    value,
+                )
+            }
+            ContactPeopleCommands::Archive(args) => {
+                let mut payload = Map::new();
+                insert_optional_string(&mut payload, "reason", args.reason.as_deref());
+                insert_agent_write_fields(&mut payload, &args.write)?;
+                let value = post_assistant_json(
+                    cli,
+                    &format!(
+                        "/api/cli/contacts/people/{}/archive",
+                        encode_path_segment(&args.id)
+                    ),
+                    Value::Object(payload),
+                )?;
+                render_assistant_value(
+                    cli.effective_output(),
+                    "contacts.people.archive",
+                    "Person",
+                    value,
+                )
+            }
+            ContactPeopleCommands::Merge(args) => {
+                let mut payload = Map::new();
+                payload.insert("into".to_string(), Value::String(args.into.clone()));
+                insert_optional_string(&mut payload, "reason", args.reason.as_deref());
+                insert_agent_write_fields(&mut payload, &args.write)?;
+                let value = post_assistant_json(
+                    cli,
+                    &format!(
+                        "/api/cli/contacts/people/{}/merge",
+                        encode_path_segment(&args.id)
+                    ),
+                    Value::Object(payload),
+                )?;
+                render_assistant_value(
+                    cli.effective_output(),
+                    "contacts.people.merge",
+                    "Person",
+                    value,
+                )
+            }
             ContactPeopleCommands::Note { command } => match command {
                 ContactNoteCommands::Add(args) => {
                     let mut payload = Map::new();
@@ -3270,6 +4458,64 @@ fn render_contact_command(cli: &Cli, command: &ContactCommands) -> Result<String
                     value,
                 )
             }
+            ContactOrgCommands::Update(args) => {
+                let mut payload = Map::new();
+                insert_optional_string(&mut payload, "name", args.name.as_deref());
+                insert_optional_string(&mut payload, "domain", args.domain.as_deref());
+                insert_optional_string(&mut payload, "website", args.website.as_deref());
+                insert_optional_string(&mut payload, "summary", args.summary.as_deref());
+                insert_agent_write_fields(&mut payload, &args.write)?;
+                let value = post_assistant_json(
+                    cli,
+                    &format!("/api/cli/contacts/orgs/{}", encode_path_segment(&args.id)),
+                    Value::Object(payload),
+                )?;
+                render_assistant_value(
+                    cli.effective_output(),
+                    "contacts.orgs.update",
+                    "Organization",
+                    value,
+                )
+            }
+            ContactOrgCommands::Archive(args) => {
+                let mut payload = Map::new();
+                insert_optional_string(&mut payload, "reason", args.reason.as_deref());
+                insert_agent_write_fields(&mut payload, &args.write)?;
+                let value = post_assistant_json(
+                    cli,
+                    &format!(
+                        "/api/cli/contacts/orgs/{}/archive",
+                        encode_path_segment(&args.id)
+                    ),
+                    Value::Object(payload),
+                )?;
+                render_assistant_value(
+                    cli.effective_output(),
+                    "contacts.orgs.archive",
+                    "Organization",
+                    value,
+                )
+            }
+            ContactOrgCommands::Merge(args) => {
+                let mut payload = Map::new();
+                payload.insert("into".to_string(), Value::String(args.into.clone()));
+                insert_optional_string(&mut payload, "reason", args.reason.as_deref());
+                insert_agent_write_fields(&mut payload, &args.write)?;
+                let value = post_assistant_json(
+                    cli,
+                    &format!(
+                        "/api/cli/contacts/orgs/{}/merge",
+                        encode_path_segment(&args.id)
+                    ),
+                    Value::Object(payload),
+                )?;
+                render_assistant_value(
+                    cli.effective_output(),
+                    "contacts.orgs.merge",
+                    "Organization",
+                    value,
+                )
+            }
         },
         ContactCommands::Links { command } => match command {
             ContactLinkCommands::Add(args) => {
@@ -3294,6 +4540,67 @@ fn render_contact_command(cli: &Cli, command: &ContactCommands) -> Result<String
                     cli.effective_output(),
                     "contacts.links.add",
                     "Contact",
+                    value,
+                )
+            }
+        },
+        ContactCommands::Relationships { command } => match command {
+            ContactRelationshipCommands::Add(args) => {
+                let mut payload = Map::new();
+                payload.insert(
+                    "from_contact_id".to_string(),
+                    Value::String(args.from_contact_id.clone()),
+                );
+                payload.insert("to".to_string(), Value::String(args.to.clone()));
+                payload.insert(
+                    "relationship_type".to_string(),
+                    Value::String(args.relationship_type.clone()),
+                );
+                insert_optional_string(&mut payload, "source_id", args.source_id.as_deref());
+                insert_agent_write_fields(&mut payload, &args.write)?;
+                let value = post_assistant_json(
+                    cli,
+                    "/api/cli/contacts/relationships",
+                    Value::Object(payload),
+                )?;
+                render_assistant_value(
+                    cli.effective_output(),
+                    "contacts.relationships.add",
+                    "Relationship",
+                    value,
+                )
+            }
+            ContactRelationshipCommands::List(args) => {
+                let value = get_assistant_json(
+                    cli,
+                    &format!(
+                        "/api/cli/contacts/{}/relationships",
+                        encode_path_segment(&args.id)
+                    ),
+                    &[],
+                )?;
+                render_assistant_value(
+                    cli.effective_output(),
+                    "contacts.relationships.list",
+                    "Relationships",
+                    value,
+                )
+            }
+            ContactRelationshipCommands::Remove(args) => {
+                let mut payload = Map::new();
+                insert_agent_write_fields(&mut payload, &args.write)?;
+                let value = post_assistant_json(
+                    cli,
+                    &format!(
+                        "/api/cli/contacts/relationships/{}/remove",
+                        encode_path_segment(&args.id)
+                    ),
+                    Value::Object(payload),
+                )?;
+                render_assistant_value(
+                    cli.effective_output(),
+                    "contacts.relationships.remove",
+                    "Relationship",
                     value,
                 )
             }

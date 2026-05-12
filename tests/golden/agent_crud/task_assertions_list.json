@@ -1,0 +1,58 @@
+{
+  "ok": true,
+  "data": {
+    "assertions": [
+      {
+        "id": "a7cb9480-444c-4c9c-a6ad-96d896cf3435",
+        "kind": "task",
+        "mesh_id": "mesh-1",
+        "owner_user_id": "user-1",
+        "status": "pending",
+        "title": "Send renewal brief",
+        "description": "Draft the renewal brief for ACME.",
+        "evidence_summary": "Please send the ACME renewal brief by Tuesday.",
+        "confidence": 0.91,
+        "asserted_by": {
+          "type": "synapse",
+          "id": "task_extractor@1.0.0"
+        },
+        "source_refs": [
+          {
+            "type": "source_node",
+            "id": "task-source-1"
+          }
+        ],
+        "priority_hint": "high",
+        "due_at_hint": "2026-05-12T21:00:00Z",
+        "assignee_hint": null,
+        "project_ref": null,
+        "dedupe_key": "mesh:mesh-1|synapse:task_extractor@1.0.0|source:task-source-1|task:send-renewal-brief|due:2026-05-12T21:00:00Z",
+        "duplicate_of_assertion_id": null,
+        "canonical_task_id": null,
+        "delegated_review_to": null,
+        "delegated_review_note": null,
+        "resolution": {},
+        "resolved_by_actor": null,
+        "resolved_at": null,
+        "triage_labels": [
+          "renewal"
+        ],
+        "evidence_hash": "a4e775a822c7376d7c773ff74cb35ca2fff4868f3f59edb190ec7d34c21d17c6",
+        "first_seen_at": "2026-05-09T13:20:00Z",
+        "last_seen_at": "2026-05-09T13:20:00Z",
+        "created_at": "2026-05-09T13:20:00Z",
+        "updated_at": "2026-05-09T13:20:00Z"
+      }
+    ],
+    "paging": {
+      "limit": 50,
+      "offset": 0,
+      "has_more": false
+    }
+  },
+  "meta": {
+    "request_id": "req_list_task_assertions",
+    "mesh_id": "mesh-1",
+    "warnings": []
+  }
+}

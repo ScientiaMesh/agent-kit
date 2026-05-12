@@ -63,6 +63,47 @@ Browser and device-code login are not wired yet. Running `smesh auth login`
 without `--access-token` exits non-zero and returns a structured JSON/NDJSON
 error when machine output is selected. It does not fake successful auth.
 
+## Portable Agent Commands
+
+Agents can save and restore portable workspace context through the mesh-backed
+agent registry:
+
+```bash
+smesh --json --mesh-id "<mesh-id>" agent save Pixel
+smesh --json --mesh-id "<mesh-id>" agent init Pixel
+smesh --json --mesh-id "<mesh-id>" agent init Pixel --override
+```
+
+`agent save` scans a conservative Markdown allowlist from the current
+workspace, including `SOUL.md`, `AGENTS.md`, `CLAUDE.md`, `MEMORY.md`,
+`USER.md`, `TOOLS.md`, and selected skill/reference Markdown directories. It
+writes a generated `.agent-pixel.md` index locally and stores a versioned JSON
+manifest in `/api/cli/agent/set`, preserving each artifact path, kind, SHA-256
+content hash, timestamp, workspace path, and host identity when available.
+
+`agent init` fetches the latest portable manifest for the named agent, creates
+the agent registry entry if it does not exist yet, writes `.agent-pixel.md`, and
+restores mesh-stored Markdown artifacts. Existing local files are preserved by
+default. `agent init --override` is the explicit destructive mode where
+mesh-stored artifacts replace existing local files. Unsafe artifact paths such
+as absolute paths, backslash paths, and parent traversal are rejected before any
+restore writes occur.
+
+## Mesh Commands
+
+Authenticated users can list the meshes available to the current token/profile:
+
+```bash
+smesh mesh list
+smesh --json mesh list
+```
+
+`mesh list` calls the portal CLI proxy at `/api/cli/meshes` using the same token
+resolution order as `auth status`. JSON output includes normalized mesh fields
+for `id`, `name`, `type`, `my_role`, `role`, `member_count`, `created_at`,
+`description`, and `is_conversation_mesh`. Missing or expired auth fails before
+the network request when local config makes that clear.
+
 ## Job And Capture Status
 
 Capture is the primary enqueue flow for agents and humans. Text capture sends a

@@ -12,10 +12,11 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use clap::{CommandFactory, Parser};
 use serde_json::json;
 use smesh_rs::{
-    render_version, AssertionCommands, AuthCommands, BriefCommands, CalendarCommands,
-    CalendarEventCommands, CaptureCommands, Cli, Commands, ContactCommands, ContactPeopleCommands,
-    JobCommands, OutputMode, PreferenceCommands, ProjectCommands, ReminderCommands,
-    SourceLinkCommands, TaskAssertionCommands, TaskCommands, TopicCommands, TopicMatch, TopicSort,
+    render_version, AgentCommands, AssertionCommands, AuthCommands, BriefCommands,
+    CalendarCommands, CalendarEventCommands, CaptureCommands, Cli, Commands, ContactCommands,
+    ContactOrgCommands, ContactPeopleCommands, ContactRelationshipCommands, JobCommands,
+    OutputMode, PreferenceCommands, ProjectCommands, ReminderCommands, SourceLinkCommands,
+    TaskAssertionCommands, TaskCommands, TopicCommands, TopicMatch, TopicSort,
 };
 
 #[test]
@@ -77,6 +78,7 @@ fn help_lists_foundation_command_and_global_flags() {
 
     assert!(help.contains("version"));
     assert!(help.contains("auth"));
+    assert!(help.contains("agent"));
     assert!(help.contains("jobs"));
     assert!(help.contains("capture"));
     assert!(help.contains("search"));
@@ -94,6 +96,478 @@ fn help_lists_foundation_command_and_global_flags() {
     assert!(help.contains("--api-url"));
     assert!(help.contains("--mesh-id"));
     assert!(help.contains("--json"));
+}
+
+#[test]
+fn parses_agent_init_and_save_contract() {
+    let init = Cli::try_parse_from([
+        "smesh",
+        "--json",
+        "--mesh-id",
+        "mesh-test",
+        "agent",
+        "init",
+        "Pixel",
+        "--override",
+    ])
+    .expect("valid agent init command");
+
+    assert!(matches!(
+        init.command,
+        Commands::Agent {
+            command: AgentCommands::Init(ref args)
+        } if args.name == "Pixel" && args.override_existing
+    ));
+
+    let save = Cli::try_parse_from([
+        "smesh",
+        "--json",
+        "--mesh-id",
+        "mesh-test",
+        "agent",
+        "save",
+        "Pixel",
+    ])
+    .expect("valid agent save command");
+
+    assert!(matches!(
+        save.command,
+        Commands::Agent {
+            command: AgentCommands::Save(ref args)
+        } if args.name == "Pixel"
+    ));
+}
+
+#[test]
+fn agent_init_first_time_creates_agent_and_index() {
+    let config = temp_config_path("agent-init-first");
+    let workspace = temp_data_path("agent-init-first-workspace");
+    fs::create_dir_all(&workspace).expect("create workspace");
+    let server = MockServer::start(vec![
+        MockResponse::json(404, r#"{"detail":"agent not found"}"#),
+        MockResponse::json(
+            200,
+            r#"{"key":"Pixel","version":"agent-v1","format":"json","content":"","synapse_task_id":"task-agent"}"#,
+        ),
+    ]);
+
+    let output = smesh_command()
+        .current_dir(&workspace)
+        .arg("--json")
+        .arg("--api-url")
+        .arg(server.url())
+        .arg("--config")
+        .arg(&config)
+        .arg("--token")
+        .arg("token-test")
+        .arg("--mesh-id")
+        .arg("mesh-test")
+        .arg("agent")
+        .arg("init")
+        .arg("Pixel")
+        .output()
+        .expect("run agent init");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
+    let value: serde_json::Value = serde_json::from_str(stdout.trim()).expect("valid JSON");
+    assert_eq!(value["action"], "agent.init");
+    assert_eq!(value["agent_name"], "Pixel");
+    assert_eq!(value["created_agent"], true);
+    assert_eq!(value["agent_version"], "agent-v1");
+    assert_eq!(value["artifacts_total"], 0);
+    assert!(workspace.join(".agent-pixel.md").is_file());
+
+    let requests = server.join();
+    assert_eq!(requests.len(), 2);
+    assert_eq!(requests[0].method, "GET");
+    assert_eq!(
+        requests[0].path,
+        "/api/cli/agent/get?agent_id=Pixel&mesh_id=mesh-test"
+    );
+    assert_eq!(requests[1].method, "POST");
+    assert_eq!(requests[1].path, "/api/cli/agent/set");
+    assert_eq!(
+        requests[1].authorization.as_deref(),
+        Some("Bearer token-test")
+    );
+    assert_eq!(requests[1].mesh_id.as_deref(), Some("mesh-test"));
+    let payload: serde_json::Value =
+        serde_json::from_str(&requests[1].body).expect("agent set payload");
+    assert_eq!(payload["agent_id"], "Pixel");
+    assert_eq!(payload["mesh_id"], "mesh-test");
+    assert_eq!(payload["format"], "json");
+    let content = payload["content"].as_str().expect("manifest content");
+    let manifest: serde_json::Value = serde_json::from_str(content).expect("manifest JSON");
+    assert_eq!(manifest["agent_name"], "Pixel");
+    assert_eq!(
+        manifest["artifacts"].as_array().expect("artifacts").len(),
+        0
+    );
+}
+
+#[test]
+fn agent_save_then_init_restores_saved_markdown_artifacts() {
+    let save_config = temp_config_path("agent-save");
+    let save_workspace = temp_data_path("agent-save-workspace");
+    fs::create_dir_all(&save_workspace).expect("create save workspace");
+    fs::write(save_workspace.join("SOUL.md"), "# Soul\nSaved identity\n").expect("write soul");
+    fs::write(
+        save_workspace.join("AGENTS.md"),
+        "# Agents\nSaved operating doc\n",
+    )
+    .expect("write agents");
+    let save_server = MockServer::start(vec![MockResponse::json(
+        200,
+        r#"{"key":"Pixel","version":"agent-save-v1","format":"json","content":"","synapse_task_id":"task-save"}"#,
+    )]);
+
+    let save_output = smesh_command()
+        .current_dir(&save_workspace)
+        .arg("--json")
+        .arg("--api-url")
+        .arg(save_server.url())
+        .arg("--config")
+        .arg(&save_config)
+        .arg("--token")
+        .arg("token-test")
+        .arg("--mesh-id")
+        .arg("mesh-test")
+        .arg("agent")
+        .arg("save")
+        .arg("Pixel")
+        .output()
+        .expect("run agent save");
+
+    assert!(save_output.status.success());
+    let save_stdout = String::from_utf8(save_output.stdout).expect("utf8 stdout");
+    let save_value: serde_json::Value =
+        serde_json::from_str(save_stdout.trim()).expect("valid JSON");
+    assert_eq!(save_value["artifacts_saved"], 2);
+    assert!(save_workspace.join(".agent-pixel.md").is_file());
+
+    let save_requests = save_server.join();
+    assert_eq!(save_requests.len(), 1);
+    assert_eq!(save_requests[0].path, "/api/cli/agent/set");
+    let save_payload: serde_json::Value =
+        serde_json::from_str(&save_requests[0].body).expect("agent set payload");
+    let manifest_content = save_payload["content"]
+        .as_str()
+        .expect("portable manifest content")
+        .to_string();
+    let manifest: serde_json::Value =
+        serde_json::from_str(&manifest_content).expect("manifest JSON");
+    let artifact_paths = manifest["artifacts"]
+        .as_array()
+        .expect("artifacts")
+        .iter()
+        .map(|artifact| artifact["path"].as_str().expect("path"))
+        .collect::<Vec<_>>();
+    assert_eq!(artifact_paths, vec!["AGENTS.md", "SOUL.md"]);
+    assert_eq!(
+        manifest["artifacts"][0]["source"]["workspace_path"],
+        save_workspace.display().to_string()
+    );
+    assert!(
+        manifest["artifacts"][0]["sha256"]
+            .as_str()
+            .expect("sha")
+            .len()
+            >= 64
+    );
+
+    let init_config = temp_config_path("agent-init-after-save");
+    let init_workspace = temp_data_path("agent-init-after-save-workspace");
+    fs::create_dir_all(&init_workspace).expect("create init workspace");
+    let get_body = json!({
+        "key": "Pixel",
+        "version": "agent-save-v1",
+        "format": "json",
+        "content": manifest_content,
+    })
+    .to_string();
+    let init_server = MockServer::start(vec![MockResponse::json(200, &get_body)]);
+
+    let init_output = smesh_command()
+        .current_dir(&init_workspace)
+        .arg("--json")
+        .arg("--api-url")
+        .arg(init_server.url())
+        .arg("--config")
+        .arg(&init_config)
+        .arg("--token")
+        .arg("token-test")
+        .arg("--mesh-id")
+        .arg("mesh-test")
+        .arg("agent")
+        .arg("init")
+        .arg("Pixel")
+        .output()
+        .expect("run agent init");
+
+    assert!(init_output.status.success());
+    assert_eq!(
+        fs::read_to_string(init_workspace.join("SOUL.md")).expect("restored soul"),
+        "# Soul\nSaved identity\n"
+    );
+    assert_eq!(
+        fs::read_to_string(init_workspace.join("AGENTS.md")).expect("restored agents"),
+        "# Agents\nSaved operating doc\n"
+    );
+    assert!(init_workspace.join(".agent-pixel.md").is_file());
+
+    let init_requests = init_server.join();
+    assert_eq!(init_requests.len(), 1);
+    assert_eq!(init_requests[0].method, "GET");
+}
+
+#[test]
+fn agent_init_without_override_preserves_existing_local_files() {
+    let config = temp_config_path("agent-init-preserve");
+    let workspace = temp_data_path("agent-init-preserve-workspace");
+    fs::create_dir_all(&workspace).expect("create workspace");
+    fs::write(workspace.join("SOUL.md"), "local identity\n").expect("write local soul");
+    let manifest = agent_manifest_with_artifacts(vec![agent_manifest_artifact(
+        "SOUL.md",
+        "identity",
+        "mesh identity\n",
+    )]);
+    let get_body = json!({
+        "key": "Pixel",
+        "version": "agent-v1",
+        "format": "json",
+        "content": manifest,
+    })
+    .to_string();
+    let server = MockServer::start(vec![MockResponse::json(200, &get_body)]);
+
+    let output = smesh_command()
+        .current_dir(&workspace)
+        .arg("--json")
+        .arg("--api-url")
+        .arg(server.url())
+        .arg("--config")
+        .arg(&config)
+        .arg("--token")
+        .arg("token-test")
+        .arg("--mesh-id")
+        .arg("mesh-test")
+        .arg("agent")
+        .arg("init")
+        .arg("Pixel")
+        .output()
+        .expect("run agent init");
+
+    assert!(output.status.success());
+    assert_eq!(
+        fs::read_to_string(workspace.join("SOUL.md")).expect("local soul"),
+        "local identity\n"
+    );
+    let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
+    let value: serde_json::Value = serde_json::from_str(stdout.trim()).expect("valid JSON");
+    assert!(value["skipped"]
+        .as_array()
+        .expect("skipped")
+        .iter()
+        .any(|item| item["path"] == "SOUL.md"));
+
+    server.join();
+}
+
+#[test]
+fn agent_init_with_override_replaces_existing_local_files() {
+    let config = temp_config_path("agent-init-override");
+    let workspace = temp_data_path("agent-init-override-workspace");
+    fs::create_dir_all(&workspace).expect("create workspace");
+    fs::write(workspace.join("SOUL.md"), "local identity\n").expect("write local soul");
+    let manifest = agent_manifest_with_artifacts(vec![agent_manifest_artifact(
+        "SOUL.md",
+        "identity",
+        "mesh identity\n",
+    )]);
+    let get_body = json!({
+        "key": "Pixel",
+        "version": "agent-v1",
+        "format": "json",
+        "content": manifest,
+    })
+    .to_string();
+    let server = MockServer::start(vec![MockResponse::json(200, &get_body)]);
+
+    let output = smesh_command()
+        .current_dir(&workspace)
+        .arg("--json")
+        .arg("--api-url")
+        .arg(server.url())
+        .arg("--config")
+        .arg(&config)
+        .arg("--token")
+        .arg("token-test")
+        .arg("--mesh-id")
+        .arg("mesh-test")
+        .arg("agent")
+        .arg("init")
+        .arg("Pixel")
+        .arg("--override")
+        .output()
+        .expect("run agent init override");
+
+    assert!(output.status.success());
+    assert_eq!(
+        fs::read_to_string(workspace.join("SOUL.md")).expect("overwritten soul"),
+        "mesh identity\n"
+    );
+    let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
+    let value: serde_json::Value = serde_json::from_str(stdout.trim()).expect("valid JSON");
+    assert_eq!(value["override_existing"], true);
+    assert!(value["restored"]
+        .as_array()
+        .expect("restored")
+        .iter()
+        .any(|item| item["path"] == "SOUL.md" && item["status"] == "overwritten"));
+
+    server.join();
+}
+
+#[test]
+fn agent_init_empty_mesh_state_generates_index_without_artifacts() {
+    let config = temp_config_path("agent-init-empty");
+    let workspace = temp_data_path("agent-init-empty-workspace");
+    fs::create_dir_all(&workspace).expect("create workspace");
+    let server = MockServer::start(vec![MockResponse::json(
+        200,
+        r#"{"key":"Pixel","version":"agent-empty","format":"json","content":""}"#,
+    )]);
+
+    let output = smesh_command()
+        .current_dir(&workspace)
+        .arg("--json")
+        .arg("--api-url")
+        .arg(server.url())
+        .arg("--config")
+        .arg(&config)
+        .arg("--token")
+        .arg("token-test")
+        .arg("--mesh-id")
+        .arg("mesh-test")
+        .arg("agent")
+        .arg("init")
+        .arg("Pixel")
+        .output()
+        .expect("run agent init empty");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
+    let value: serde_json::Value = serde_json::from_str(stdout.trim()).expect("valid JSON");
+    assert_eq!(value["artifacts_total"], 0);
+    assert!(workspace.join(".agent-pixel.md").is_file());
+
+    server.join();
+}
+
+#[test]
+fn agent_init_rejects_unsafe_artifact_paths() {
+    let config = temp_config_path("agent-init-unsafe");
+    let workspace = temp_data_path("agent-init-unsafe-workspace");
+    fs::create_dir_all(&workspace).expect("create workspace");
+    let manifest = agent_manifest_with_artifacts(vec![agent_manifest_artifact(
+        "../SOUL.md",
+        "identity",
+        "unsafe\n",
+    )]);
+    let get_body = json!({
+        "key": "Pixel",
+        "version": "agent-v1",
+        "format": "json",
+        "content": manifest,
+    })
+    .to_string();
+    let server = MockServer::start(vec![MockResponse::json(200, &get_body)]);
+
+    let output = smesh_command()
+        .current_dir(&workspace)
+        .arg("--json")
+        .arg("--api-url")
+        .arg(server.url())
+        .arg("--config")
+        .arg(&config)
+        .arg("--token")
+        .arg("token-test")
+        .arg("--mesh-id")
+        .arg("mesh-test")
+        .arg("agent")
+        .arg("init")
+        .arg("Pixel")
+        .output()
+        .expect("run unsafe agent init");
+
+    assert!(!output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
+    let value: serde_json::Value = serde_json::from_str(stdout.trim()).expect("valid JSON error");
+    assert!(value["error"]
+        .as_str()
+        .expect("error string")
+        .contains("Unsafe agent artifact path"));
+    assert!(!workspace.join(".agent-pixel.md").exists());
+    assert!(!workspace.join("SOUL.md").exists());
+
+    server.join();
+}
+
+#[cfg(unix)]
+#[test]
+fn agent_init_rejects_symlink_parent_escape() {
+    use std::os::unix::fs::symlink;
+
+    let config = temp_config_path("agent-init-symlink-parent");
+    let workspace = temp_data_path("agent-init-symlink-parent-workspace");
+    let outside = temp_data_path("agent-init-symlink-parent-outside");
+    fs::create_dir_all(&workspace).expect("create workspace");
+    fs::create_dir_all(&outside).expect("create outside target");
+    symlink(&outside, workspace.join("docs")).expect("create workspace symlink");
+
+    let manifest = agent_manifest_with_artifacts(vec![agent_manifest_artifact(
+        "docs/SOUL.md",
+        "identity",
+        "escaped\n",
+    )]);
+    let get_body = json!({
+        "key": "Pixel",
+        "version": "agent-v1",
+        "format": "json",
+        "content": manifest,
+    })
+    .to_string();
+    let server = MockServer::start(vec![MockResponse::json(200, &get_body)]);
+
+    let output = smesh_command()
+        .current_dir(&workspace)
+        .arg("--json")
+        .arg("--api-url")
+        .arg(server.url())
+        .arg("--config")
+        .arg(&config)
+        .arg("--token")
+        .arg("token-test")
+        .arg("--mesh-id")
+        .arg("mesh-test")
+        .arg("agent")
+        .arg("init")
+        .arg("Pixel")
+        .arg("--override")
+        .output()
+        .expect("run symlink escape agent init");
+
+    assert!(!output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
+    let value: serde_json::Value = serde_json::from_str(stdout.trim()).expect("valid JSON error");
+    assert!(value["error"]
+        .as_str()
+        .expect("error string")
+        .contains("resolved parent escapes the workspace"));
+    assert!(!outside.join("SOUL.md").exists());
+
+    server.join();
 }
 
 #[test]
@@ -492,6 +966,87 @@ fn parses_assistant_contact_brief_and_calendar_commands() {
             }
         } if args.from_ts == "2026-05-12T00:00:00Z"
             && args.to_ts == "2026-05-13T00:00:00Z"
+    ));
+}
+
+#[test]
+fn parses_contact_lifecycle_and_relationship_commands() {
+    let person_update = Cli::try_parse_from([
+        "smesh",
+        "--json",
+        "--mesh-id",
+        "mesh-test",
+        "contacts",
+        "people",
+        "update",
+        "person_123",
+        "--email",
+        "maya@example.com",
+        "--preferred-channel",
+        "signal",
+    ])
+    .expect("valid person update command");
+
+    assert!(matches!(
+        person_update.command,
+        Commands::Contacts {
+            command: ContactCommands::People {
+                command: ContactPeopleCommands::Update(ref args)
+            }
+        } if args.id == "person_123"
+            && args.email.as_deref() == Some("maya@example.com")
+            && args.preferred_channel.as_deref() == Some("signal")
+    ));
+
+    let org_merge = Cli::try_parse_from([
+        "smesh",
+        "--json",
+        "--mesh-id",
+        "mesh-test",
+        "contacts",
+        "orgs",
+        "merge",
+        "org_old",
+        "--into",
+        "org_new",
+    ])
+    .expect("valid org merge command");
+
+    assert!(matches!(
+        org_merge.command,
+        Commands::Contacts {
+            command: ContactCommands::Orgs {
+                command: ContactOrgCommands::Merge(ref args)
+            }
+        } if args.id == "org_old" && args.into == "org_new"
+    ));
+
+    let relationship_add = Cli::try_parse_from([
+        "smesh",
+        "--json",
+        "--mesh-id",
+        "mesh-test",
+        "contacts",
+        "relationships",
+        "add",
+        "--from",
+        "person_123",
+        "--to",
+        "project:acme",
+        "--type",
+        "owner_of",
+    ])
+    .expect("valid relationship add command");
+
+    assert!(matches!(
+        relationship_add.command,
+        Commands::Contacts {
+            command: ContactCommands::Relationships {
+                command: ContactRelationshipCommands::Add(ref args)
+            }
+        } if args.from_contact_id == "person_123"
+            && args.to == "project:acme"
+            && args.relationship_type == "owner_of"
     ));
 }
 
@@ -1523,6 +2078,46 @@ fn smesh_command() -> Command {
         command.env_remove(name);
     }
     command
+}
+
+fn agent_manifest_with_artifacts(artifacts: Vec<serde_json::Value>) -> String {
+    json!({
+        "schema_version": 1,
+        "agent_name": "Pixel",
+        "agent_id": "Pixel",
+        "generated_at_unix_seconds": 1770000000,
+        "mesh_id": "mesh-test",
+        "workspace": {
+            "path": "/tmp/source-workspace",
+            "host": "host-test"
+        },
+        "index": {
+            "path": ".agent-pixel.md",
+            "kind": "index",
+            "format": "md",
+            "content": "# Pixel Portable Agent Index\n",
+            "sha256": "index-sha",
+            "generated_at_unix_seconds": 1770000000
+        },
+        "artifacts": artifacts,
+    })
+    .to_string()
+}
+
+fn agent_manifest_artifact(path: &str, kind: &str, content: &str) -> serde_json::Value {
+    json!({
+        "path": path,
+        "kind": kind,
+        "format": "md",
+        "content": content,
+        "sha256": "artifact-sha",
+        "size_bytes": content.len(),
+        "captured_at_unix_seconds": 1770000000,
+        "source": {
+            "workspace_path": "/tmp/source-workspace",
+            "host": "host-test"
+        }
+    })
 }
 
 #[derive(Clone, Debug)]

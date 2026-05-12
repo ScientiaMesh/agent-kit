@@ -1,0 +1,19 @@
+{
+  "ok": false,
+  "error": {
+    "code": "SMESH_CONFIRMATION_REQUIRED",
+    "message": "Archiving a canonical project requires explicit confirmation.",
+    "details": {
+      "action": "projects.archive",
+      "target_id": "project_acme",
+      "confirmation_token": "confirm_5a2b13bf5d81f340bb4d8c20"
+    },
+    "http_status": 409,
+    "request_id": "req_archive_project",
+    "retryable": false
+  },
+  "meta": {
+    "request_id": "req_archive_project",
+    "mesh_id": "mesh-1"
+  }
+}
