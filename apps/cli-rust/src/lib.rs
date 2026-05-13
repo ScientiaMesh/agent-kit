@@ -2519,6 +2519,26 @@ fn render_agent_save(cli: &Cli, args: &AgentSaveArgs) -> Result<String, CliError
     write_generated_agent_index(&workspace_root, &manifest.index)?;
 
     let response = set_agent_registry_manifest(&context, &manifest, &mesh_id)?;
+    set_agent_markdown_artifact(
+        &context,
+        &agent_id,
+        &mesh_id,
+        &manifest.index.path,
+        &manifest.index.kind,
+        &manifest.index.format,
+        &manifest.index.content,
+    )?;
+    for artifact in &manifest.artifacts {
+        set_agent_markdown_artifact(
+            &context,
+            &agent_id,
+            &mesh_id,
+            &artifact.path,
+            &artifact.kind,
+            &artifact.format,
+            &artifact.content,
+        )?;
+    }
     let artifact_outputs = manifest
         .artifacts
         .iter()
@@ -2663,6 +2683,57 @@ fn set_agent_registry_manifest(
         "content": content,
     });
     post_json_with_fallback(context, "/api/cli/agent/set", "/v1/agent/set", payload)
+}
+
+fn set_agent_context_artifact(
+    context: &RemoteContext,
+    agent_id: &str,
+    mesh_id: &str,
+    path: &str,
+    format: &str,
+    content: &str,
+) -> Result<Value, CliError> {
+    let payload = json!({
+        "agent_id": agent_id,
+        "key": path,
+        "mesh_id": mesh_id,
+        "format": format,
+        "content": content,
+    });
+    post_json_with_fallback(context, "/api/cli/context/set", "/v1/context/set", payload)
+}
+
+fn set_agent_skill_artifact(
+    context: &RemoteContext,
+    agent_id: &str,
+    mesh_id: &str,
+    path: &str,
+    format: &str,
+    content: &str,
+) -> Result<Value, CliError> {
+    let payload = json!({
+        "skill_name": path,
+        "agent_id": agent_id,
+        "mesh_id": mesh_id,
+        "format": format,
+        "content": content,
+    });
+    post_json_with_fallback(context, "/api/cli/skills/set", "/v1/skills/set", payload)
+}
+
+fn set_agent_markdown_artifact(
+    context: &RemoteContext,
+    agent_id: &str,
+    mesh_id: &str,
+    path: &str,
+    kind: &str,
+    format: &str,
+    content: &str,
+) -> Result<Value, CliError> {
+    match kind {
+        "skill" => set_agent_skill_artifact(context, agent_id, mesh_id, path, format, content),
+        _ => set_agent_context_artifact(context, agent_id, mesh_id, path, format, content),
+    }
 }
 
 fn manifest_from_agent_response(

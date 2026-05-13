@@ -217,10 +217,24 @@ fn agent_save_then_init_restores_saved_markdown_artifacts() {
         "# Agents\nSaved operating doc\n",
     )
     .expect("write agents");
-    let save_server = MockServer::start(vec![MockResponse::json(
-        200,
-        r#"{"key":"Pixel","version":"agent-save-v1","format":"json","content":"","synapse_task_id":"task-save"}"#,
-    )]);
+    let save_server = MockServer::start(vec![
+        MockResponse::json(
+            200,
+            r#"{"key":"Pixel","version":"agent-save-v1","format":"json","content":"","synapse_task_id":"task-save"}"#,
+        ),
+        MockResponse::json(
+            200,
+            r#"{"key":".agent-pixel.md","version":"context-index-v1","format":"md","content":"","agent_id":"Pixel","synapse_task_id":"task-index"}"#,
+        ),
+        MockResponse::json(
+            200,
+            r#"{"key":"AGENTS.md","version":"context-agents-v1","format":"md","content":"","agent_id":"Pixel","synapse_task_id":"task-agents"}"#,
+        ),
+        MockResponse::json(
+            200,
+            r#"{"key":"SOUL.md","version":"context-soul-v1","format":"md","content":"","agent_id":"Pixel","synapse_task_id":"task-soul"}"#,
+        ),
+    ]);
 
     let save_output = smesh_command()
         .current_dir(&save_workspace)
@@ -247,7 +261,7 @@ fn agent_save_then_init_restores_saved_markdown_artifacts() {
     assert!(save_workspace.join(".agent-pixel.md").is_file());
 
     let save_requests = save_server.join();
-    assert_eq!(save_requests.len(), 1);
+    assert_eq!(save_requests.len(), 4);
     assert_eq!(save_requests[0].path, "/api/cli/agent/set");
     let save_payload: serde_json::Value =
         serde_json::from_str(&save_requests[0].body).expect("agent set payload");
@@ -275,6 +289,23 @@ fn agent_save_then_init_restores_saved_markdown_artifacts() {
             .len()
             >= 64
     );
+    assert_eq!(save_requests[1].path, "/api/cli/context/set");
+    let index_payload: serde_json::Value =
+        serde_json::from_str(&save_requests[1].body).expect("index context payload");
+    assert_eq!(index_payload["agent_id"], "Pixel");
+    assert_eq!(index_payload["key"], ".agent-pixel.md");
+    assert_eq!(index_payload["mesh_id"], "mesh-test");
+    assert_eq!(index_payload["format"], "md");
+    assert_eq!(save_requests[2].path, "/api/cli/context/set");
+    let agents_payload: serde_json::Value =
+        serde_json::from_str(&save_requests[2].body).expect("agents context payload");
+    assert_eq!(agents_payload["agent_id"], "Pixel");
+    assert_eq!(agents_payload["key"], "AGENTS.md");
+    assert_eq!(save_requests[3].path, "/api/cli/context/set");
+    let soul_payload: serde_json::Value =
+        serde_json::from_str(&save_requests[3].body).expect("soul context payload");
+    assert_eq!(soul_payload["agent_id"], "Pixel");
+    assert_eq!(soul_payload["key"], "SOUL.md");
 
     let init_config = temp_config_path("agent-init-after-save");
     let init_workspace = temp_data_path("agent-init-after-save-workspace");
