@@ -131,8 +131,23 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          version_tag="smesh-v${{ steps.version.outputs.version }}"
+
+          git tag -f "$version_tag" "$GITHUB_SHA"
+          git push origin "refs/tags/$version_tag" --force
+          gh release delete "$version_tag" --yes || true
+          gh release create "$version_tag" release-assets/* \
+            --title "smesh v${{ steps.version.outputs.version }}" \
+            --notes "Auto-published smesh CLI and ScientiaMesh EA skill assets for v${{ steps.version.outputs.version }}." \
+            --verify-tag \
+            --latest
+
+          git tag -f smesh-latest "$GITHUB_SHA"
+          git push origin refs/tags/smesh-latest --force
           gh release delete smesh-latest --yes || true
           gh release create smesh-latest release-assets/* \
             --title "smesh latest" \
             --notes "Auto-updated latest smesh CLI and ScientiaMesh EA skill assets." \
-            --prerelease
+            --verify-tag
+
+          gh release edit "$version_tag" --latest
