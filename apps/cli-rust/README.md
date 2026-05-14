@@ -41,12 +41,14 @@ example.
 
 ## Auth Commands
 
-The first Rust auth surface is intentionally token/config based. It is safe for
-agents because status output never prints bearer or refresh tokens.
+The Rust CLI supports browser-based OAuth for humans and token/config auth for
+agents. Auth status output never prints bearer or refresh tokens.
 
 ```bash
 smesh --json auth status
 smesh --output ndjson auth status
+smesh auth login
+smesh auth login --no-open-browser
 smesh --json auth login --access-token "$SMESH_TOKEN" --mesh-id "<mesh-id>"
 smesh --json auth logout
 ```
@@ -54,14 +56,39 @@ smesh --json auth logout
 JSON and NDJSON output modes are intended for agent automation and other
 machine consumers, so scripts should prefer them over parsing human output.
 
-`auth status` resolves tokens from `--token`, `SMESH_TOKEN`, `SMESH_API_KEY`,
-`AUTH0_ACCESS_TOKEN`, then the selected profile config. `auth login
---access-token` writes the selected profile config using file mode `0600` on
-Unix-like systems. `auth logout` removes stored tokens from that profile.
+`smesh auth login` starts an OAuth Authorization Code + PKCE login. The CLI
+binds a loopback callback listener on `127.0.0.1` with an ephemeral port, opens
+the system browser to the Auth0 `/authorize` URL, validates the callback
+`state`, exchanges the authorization `code` plus the PKCE verifier at
+`/oauth/token`, and writes the selected profile config using file mode `0600`
+on Unix-like systems. The default callback timeout is 300 seconds; override it
+with `--callback-timeout-seconds <seconds>`.
 
-Browser and device-code login are not wired yet. Running `smesh auth login`
-without `--access-token` exits non-zero and returns a structured JSON/NDJSON
-error when machine output is selected. It does not fake successful auth.
+Use `--no-open-browser` for remote shells and headless terminals. The CLI prints
+the login URL to stderr, waits for the same localhost callback, and keeps stdout
+reserved for the final human/JSON/NDJSON result. The browser must be able to
+reach the printed `127.0.0.1:<port>` callback on the machine running `smesh`;
+when that is not practical, use the token fallback below.
+
+The existing non-interactive path remains supported:
+
+```bash
+smesh --json auth login --access-token "$SMESH_TOKEN" \
+  --refresh-token "$SMESH_REFRESH_TOKEN" \
+  --expires-at 4102444800
+```
+
+`auth status` resolves tokens from `--token`, `SMESH_TOKEN`, `SMESH_API_KEY`,
+`AUTH0_ACCESS_TOKEN`, then the selected profile config. `auth logout` removes
+stored tokens from that profile.
+
+Auth0 operational setup: configure the CLI application as a public/native
+client that permits Authorization Code with PKCE and loopback callback redirects
+matching `http://127.0.0.1:<ephemeral-port>/callback`. OAuth for native apps
+expects authorization servers to allow any port for loopback IP redirect URIs;
+if a tenant enforces exact callback URLs, use the concrete URL printed by
+`--no-open-browser` for testing or provision a CLI-specific app that supports
+loopback redirects.
 
 ## Portable Agent Commands
 

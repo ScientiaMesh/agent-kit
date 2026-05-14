@@ -1,9 +1,11 @@
 use std::collections::BTreeMap;
 use std::ffi::OsStr;
 use std::fs;
-use std::io::{self, IsTerminal, Read};
+use std::io::{self, BufRead, BufReader, IsTerminal, Read, Write};
+use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::process::Command as ProcessCommand;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use clap::{ArgAction, Args, Parser, Subcommand, ValueEnum};
 use serde::{Deserialize, Serialize};
@@ -18,6 +20,8 @@ pub const DEFAULT_AUTH_DOMAIN: &str = "preview-smesh.ca.auth0.com";
 pub const DEFAULT_AUTH_CLIENT_ID: &str = "j2jfu9tV6OcGft0C8UPiy3soszr3149L";
 pub const DEFAULT_CONFIG_PATH: &str = "~/.config/scientiamesh/config.json";
 const USER_AGENT: &str = concat!("smesh-rs/", env!("CARGO_PKG_VERSION"));
+const DEFAULT_AUTH_SCOPE: &str = "openid profile email offline_access";
+const DEFAULT_LOGIN_TIMEOUT_SECONDS: u64 = 300;
 const RETRIEVAL_SCHEMA_VERSION: u8 = 1;
 const AGENT_PORTABLE_SCHEMA_VERSION: u8 = 1;
 
@@ -315,7 +319,7 @@ pub enum Commands {
 
 #[derive(Debug, Subcommand)]
 pub enum AuthCommands {
-    #[command(about = "Store a bearer token in the local profile config.")]
+    #[command(about = "Log in with browser OAuth or store a bearer token.")]
     Login(AuthLoginArgs),
 
     #[command(about = "Remove stored auth tokens from the local profile config.")]
@@ -327,6 +331,21 @@ pub enum AuthCommands {
 
 #[derive(Debug, Args)]
 pub struct AuthLoginArgs {
+    #[arg(
+        long = "no-open-browser",
+        action = ArgAction::SetTrue,
+        help = "Print the browser login URL instead of opening it."
+    )]
+    pub no_open_browser: bool,
+
+    #[arg(
+        long = "callback-timeout-seconds",
+        default_value_t = DEFAULT_LOGIN_TIMEOUT_SECONDS,
+        value_name = "SECONDS",
+        help = "Seconds to wait for the localhost OAuth callback."
+    )]
+    pub callback_timeout_seconds: u64,
+
     #[arg(
         long = "access-token",
         value_name = "TOKEN",
@@ -2056,15 +2075,6 @@ impl CliError {
         Self::Command {
             message: message.into(),
             exit_code: 2,
-            status: None,
-            details: None,
-        }
-    }
-
-    fn unsupported(message: impl Into<String>) -> Self {
-        Self::Command {
-            message: message.into(),
-            exit_code: 6,
             status: None,
             details: None,
         }
@@ -6542,12 +6552,6 @@ fn render_auth_status(cli: &Cli) -> Result<String, CliError> {
 }
 
 fn render_auth_login(cli: &Cli, args: &AuthLoginArgs) -> Result<String, CliError> {
-    let Some(access_token) = args.access_token.clone() else {
-        return Err(CliError::unsupported(
-            "Device flow is not supported for this client. Browser login is not yet wired in the Rust CLI. Use `smesh auth login --access-token <token>` or set SMESH_TOKEN for non-interactive commands.",
-        ));
-    };
-
     let config_path = expand_tilde(&cli.config);
     let mut config = ConfigFile::load(&config_path)?;
     let profile_name = profile_name(cli, &config);
@@ -6556,73 +6560,102 @@ fn render_auth_login(cli: &Cli, args: &AuthLoginArgs) -> Result<String, CliError
     let profile = config.profiles.entry(profile_name.clone()).or_default();
     let api_url = resolve_api_url(cli, Some(profile));
     let mesh_id = resolve_mesh_id(cli, Some(profile));
-    let domain = args
-        .auth_domain
-        .clone()
-        .or_else(|| {
-            env_first(&[
-                "SMESH_AUTH0_DOMAIN",
-                "AUTH0_DOMAIN",
-                "NEXT_PUBLIC_AUTH0_DOMAIN",
-            ])
-        })
-        .or_else(|| {
-            profile
-                .auth_settings
-                .as_ref()
-                .and_then(|settings| settings.domain.clone())
-        })
-        .unwrap_or_else(|| DEFAULT_AUTH_DOMAIN.to_string());
-    let audience = args
-        .auth_audience
-        .clone()
-        .or_else(|| {
-            env_first(&[
-                "SMESH_AUTH0_AUDIENCE",
-                "AUTH0_AUDIENCE",
-                "NEXT_PUBLIC_AUTH0_AUDIENCE",
-            ])
-        })
-        .or_else(|| {
-            profile
-                .auth_settings
-                .as_ref()
-                .and_then(|settings| settings.audience.clone())
-        })
-        .unwrap_or_else(|| DEFAULT_AUTH_AUDIENCE.to_string());
-    let client_id = args
-        .auth_client_id
-        .clone()
-        .or_else(|| {
-            env_first(&[
-                "SMESH_AUTH0_CLIENT_ID",
-                "AUTH0_CLI_CLIENT_ID",
-                "AUTH0_MCP_CLIENT_ID",
-                "NEXT_PUBLIC_AUTH0_CLIENT_ID",
-                "AUTH0_CLIENT_ID",
-            ])
-        })
-        .or_else(|| {
-            profile
-                .auth_settings
-                .as_ref()
-                .and_then(|settings| settings.client_id.clone())
-        })
-        .unwrap_or_else(|| DEFAULT_AUTH_CLIENT_ID.to_string());
+    let auth_settings = resolve_login_auth_settings(args, Some(profile));
+    if args
+        .access_token
+        .as_deref()
+        .is_some_and(|token| token.trim().is_empty())
+    {
+        return Err(CliError::config("--access-token must not be empty."));
+    }
+    let (access_token, refresh_token, expires_at, token_type, login_method) =
+        if let Some(access_token) = non_empty_owned(args.access_token.clone()) {
+            (
+                access_token,
+                non_empty_owned(args.refresh_token.clone()),
+                args.expires_at,
+                Some("Bearer".to_string()),
+                "stored access token",
+            )
+        } else {
+            if args.callback_timeout_seconds == 0 {
+                return Err(CliError::config(
+                    "--callback-timeout-seconds must be greater than zero.",
+                ));
+            }
+
+            let listener = TcpListener::bind("127.0.0.1:0").map_err(|error| {
+                CliError::config(format!(
+                    "Failed to start localhost OAuth callback listener: {error}"
+                ))
+            })?;
+            let redirect_uri = format!(
+                "http://{}/callback",
+                listener.local_addr().map_err(|error| {
+                    CliError::config(format!(
+                        "Failed to inspect OAuth callback listener: {error}"
+                    ))
+                })?
+            );
+            let pkce = generate_pkce_pair()?;
+            let state = generate_oauth_state()?;
+            let authorize_url =
+                build_authorization_url(&auth_settings, &redirect_uri, &state, &pkce.challenge);
+
+            emit_browser_login_progress(
+                args.no_open_browser,
+                &authorize_url,
+                &redirect_uri,
+                args.callback_timeout_seconds,
+            );
+
+            let callback = wait_for_oauth_callback(
+                &listener,
+                &state,
+                Duration::from_secs(args.callback_timeout_seconds),
+            )?;
+            let token_response = exchange_oauth_code(
+                &auth_settings,
+                &callback.code,
+                &pkce.verifier,
+                &redirect_uri,
+            )?;
+            let access_token = token_response
+                .access_token
+                .filter(|token| !token.is_empty())
+                .ok_or_else(|| {
+                    CliError::config("OAuth token exchange did not return an access token.")
+                })?;
+            let expires_at = token_response.expires_at.or_else(|| {
+                token_response
+                    .expires_in
+                    .map(|seconds| now_unix_seconds() + seconds)
+            });
+            (
+                access_token,
+                non_empty_owned(token_response.refresh_token),
+                expires_at,
+                token_response
+                    .token_type
+                    .and_then(|token_type| non_empty_owned(Some(token_type)))
+                    .or_else(|| Some("Bearer".to_string())),
+                "browser OAuth",
+            )
+        };
 
     profile.api_url = Some(api_url.clone());
     profile.mesh_id = mesh_id.clone();
     profile.auth = Some(AuthConfig {
         access_token: Some(access_token),
-        refresh_token: args.refresh_token.clone(),
-        expires_at: args.expires_at,
-        token_type: Some("Bearer".to_string()),
+        refresh_token: refresh_token.clone(),
+        expires_at,
+        token_type,
         extra: BTreeMap::new(),
     });
     profile.auth_settings = Some(AuthSettings {
-        domain: Some(domain),
-        client_id: Some(client_id),
-        audience: Some(audience),
+        domain: Some(auth_settings.domain),
+        client_id: Some(auth_settings.client_id),
+        audience: Some(auth_settings.audience),
         extra: BTreeMap::new(),
     });
     config.write(&config_path)?;
@@ -6634,14 +6667,14 @@ fn render_auth_login(cli: &Cli, args: &AuthLoginArgs) -> Result<String, CliError
         api_url,
         mesh_id,
         access_token_present: true,
-        refresh_token_present: args.refresh_token.is_some(),
-        expires_at: args.expires_at,
+        refresh_token_present: refresh_token.is_some(),
+        expires_at,
     };
 
     match cli.effective_output() {
         OutputMode::Human => Ok(format!(
-            "Logged in profile `{}` with a stored access token.\nOperation ID: {}\n",
-            output.profile, output.operation_id
+            "Logged in profile `{}` with {}.\nOperation ID: {}\n",
+            output.profile, login_method, output.operation_id
         )),
         OutputMode::Json => Ok(format!("{}\n", serde_json::to_string(&output)?)),
         OutputMode::Ndjson => {
@@ -6652,6 +6685,512 @@ fn render_auth_login(cli: &Cli, args: &AuthLoginArgs) -> Result<String, CliError
             Ok(format!("{}\n", serde_json::to_string(&event)?))
         }
     }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct LoginAuthSettings {
+    domain: String,
+    client_id: String,
+    audience: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct PkcePair {
+    verifier: String,
+    challenge: String,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct OAuthCallback {
+    code: String,
+    state: String,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq)]
+struct OAuthTokenResponse {
+    access_token: Option<String>,
+    refresh_token: Option<String>,
+    expires_in: Option<i64>,
+    expires_at: Option<i64>,
+    token_type: Option<String>,
+}
+
+fn resolve_login_auth_settings(
+    args: &AuthLoginArgs,
+    profile: Option<&ProfileConfig>,
+) -> LoginAuthSettings {
+    let domain = non_empty_owned(args.auth_domain.clone())
+        .or_else(|| {
+            env_first(&[
+                "SMESH_AUTH0_DOMAIN",
+                "AUTH0_DOMAIN",
+                "NEXT_PUBLIC_AUTH0_DOMAIN",
+            ])
+        })
+        .or_else(|| {
+            profile
+                .and_then(|profile| profile.auth_settings.as_ref())
+                .and_then(|settings| non_empty_owned(settings.domain.clone()))
+        })
+        .unwrap_or_else(|| DEFAULT_AUTH_DOMAIN.to_string());
+    let audience = non_empty_owned(args.auth_audience.clone())
+        .or_else(|| {
+            env_first(&[
+                "SMESH_AUTH0_AUDIENCE",
+                "AUTH0_AUDIENCE",
+                "NEXT_PUBLIC_AUTH0_AUDIENCE",
+            ])
+        })
+        .or_else(|| {
+            profile
+                .and_then(|profile| profile.auth_settings.as_ref())
+                .and_then(|settings| non_empty_owned(settings.audience.clone()))
+        })
+        .unwrap_or_else(|| DEFAULT_AUTH_AUDIENCE.to_string());
+    let client_id = non_empty_owned(args.auth_client_id.clone())
+        .or_else(|| {
+            env_first(&[
+                "SMESH_AUTH0_CLIENT_ID",
+                "AUTH0_CLI_CLIENT_ID",
+                "AUTH0_MCP_CLIENT_ID",
+                "NEXT_PUBLIC_AUTH0_CLIENT_ID",
+                "AUTH0_CLIENT_ID",
+            ])
+        })
+        .or_else(|| {
+            profile
+                .and_then(|profile| profile.auth_settings.as_ref())
+                .and_then(|settings| non_empty_owned(settings.client_id.clone()))
+        })
+        .unwrap_or_else(|| DEFAULT_AUTH_CLIENT_ID.to_string());
+
+    LoginAuthSettings {
+        domain,
+        client_id,
+        audience,
+    }
+}
+
+fn non_empty_owned(value: Option<String>) -> Option<String> {
+    value.and_then(|value| {
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    })
+}
+
+fn generate_pkce_pair() -> Result<PkcePair, CliError> {
+    let verifier = random_urlsafe(32)?;
+    Ok(PkcePair {
+        challenge: pkce_challenge(&verifier),
+        verifier,
+    })
+}
+
+fn generate_oauth_state() -> Result<String, CliError> {
+    random_urlsafe(32)
+}
+
+fn random_urlsafe(byte_len: usize) -> Result<String, CliError> {
+    let mut bytes = vec![0u8; byte_len];
+    getrandom::fill(&mut bytes)
+        .map_err(|error| CliError::config(format!("Failed to generate OAuth nonce: {error}")))?;
+    Ok(base64_url_no_pad(&bytes))
+}
+
+fn pkce_challenge(verifier: &str) -> String {
+    let digest = Sha256::digest(verifier.as_bytes());
+    base64_url_no_pad(&digest)
+}
+
+fn base64_url_no_pad(bytes: &[u8]) -> String {
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    let mut encoded = String::with_capacity((bytes.len() * 4).div_ceil(3));
+    for chunk in bytes.chunks(3) {
+        let b0 = chunk[0];
+        let b1 = *chunk.get(1).unwrap_or(&0);
+        let b2 = *chunk.get(2).unwrap_or(&0);
+        let triple = ((b0 as u32) << 16) | ((b1 as u32) << 8) | b2 as u32;
+        encoded.push(TABLE[((triple >> 18) & 0x3f) as usize] as char);
+        encoded.push(TABLE[((triple >> 12) & 0x3f) as usize] as char);
+        if chunk.len() > 1 {
+            encoded.push(TABLE[((triple >> 6) & 0x3f) as usize] as char);
+        }
+        if chunk.len() > 2 {
+            encoded.push(TABLE[(triple & 0x3f) as usize] as char);
+        }
+    }
+    encoded
+}
+
+fn build_authorization_url(
+    settings: &LoginAuthSettings,
+    redirect_uri: &str,
+    state: &str,
+    code_challenge: &str,
+) -> String {
+    let params = [
+        ("response_type", "code"),
+        ("client_id", settings.client_id.as_str()),
+        ("redirect_uri", redirect_uri),
+        ("scope", DEFAULT_AUTH_SCOPE),
+        ("audience", settings.audience.as_str()),
+        ("state", state),
+        ("code_challenge", code_challenge),
+        ("code_challenge_method", "S256"),
+    ];
+    let query = params
+        .iter()
+        .map(|(key, value)| format!("{}={}", percent_encode(key), percent_encode(value)))
+        .collect::<Vec<_>>()
+        .join("&");
+    format!("{}/authorize?{query}", auth_base_url(&settings.domain))
+}
+
+fn auth_base_url(domain: &str) -> String {
+    let trimmed = domain.trim().trim_end_matches('/');
+    if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+        trimmed.to_string()
+    } else {
+        format!("https://{trimmed}")
+    }
+}
+
+fn emit_browser_login_progress(
+    no_open_browser: bool,
+    authorize_url: &str,
+    redirect_uri: &str,
+    timeout_seconds: u64,
+) {
+    if no_open_browser {
+        eprintln!("Open this URL to log in:\n{authorize_url}");
+    } else {
+        match open_system_browser(authorize_url) {
+            Ok(()) => eprintln!("Opened browser for ScientiaMesh login."),
+            Err(error) => eprintln!(
+                "Could not open the browser automatically: {error}\nOpen this URL to log in:\n{authorize_url}"
+            ),
+        }
+    }
+    eprintln!("Waiting up to {timeout_seconds}s for OAuth callback at {redirect_uri}.");
+}
+
+#[cfg(target_os = "macos")]
+fn open_system_browser(url: &str) -> io::Result<()> {
+    ProcessCommand::new("open").arg(url).spawn().map(|_| ())
+}
+
+#[cfg(target_os = "windows")]
+fn open_system_browser(url: &str) -> io::Result<()> {
+    ProcessCommand::new("cmd")
+        .args(["/C", "start", "", url])
+        .spawn()
+        .map(|_| ())
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+fn open_system_browser(url: &str) -> io::Result<()> {
+    ProcessCommand::new("xdg-open").arg(url).spawn().map(|_| ())
+}
+
+#[cfg(not(any(unix, target_os = "windows")))]
+fn open_system_browser(_url: &str) -> io::Result<()> {
+    Err(io::Error::new(
+        io::ErrorKind::Unsupported,
+        "automatic browser opening is not supported on this platform",
+    ))
+}
+
+fn wait_for_oauth_callback(
+    listener: &TcpListener,
+    expected_state: &str,
+    timeout: Duration,
+) -> Result<OAuthCallback, CliError> {
+    listener.set_nonblocking(true).map_err(|error| {
+        CliError::config(format!(
+            "Failed to prepare OAuth callback listener: {error}"
+        ))
+    })?;
+    let deadline = Instant::now()
+        .checked_add(timeout)
+        .unwrap_or_else(Instant::now);
+
+    loop {
+        match listener.accept() {
+            Ok((mut stream, _)) => {
+                let target = read_oauth_request_target(&mut stream)?;
+                match validate_oauth_callback_target(&target, expected_state) {
+                    Ok(callback) => {
+                        let _ = write_oauth_callback_response(
+                            &mut stream,
+                            200,
+                            "ScientiaMesh login complete",
+                            "Login complete. You can return to the terminal.",
+                        );
+                        return Ok(callback);
+                    }
+                    Err(error) => {
+                        let _ = write_oauth_callback_response(
+                            &mut stream,
+                            400,
+                            "ScientiaMesh login failed",
+                            "Login failed. You can return to the terminal.",
+                        );
+                        return Err(error);
+                    }
+                }
+            }
+            Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                if Instant::now() >= deadline {
+                    return Err(CliError::config(format!(
+                        "Timed out after {} seconds waiting for the OAuth callback. Re-run `smesh auth login` to start a new browser login.",
+                        timeout.as_secs()
+                    )));
+                }
+                std::thread::sleep(Duration::from_millis(25));
+            }
+            Err(error) => {
+                return Err(CliError::config(format!(
+                    "Failed while waiting for OAuth callback: {error}"
+                )));
+            }
+        }
+    }
+}
+
+fn read_oauth_request_target(stream: &mut TcpStream) -> Result<String, CliError> {
+    stream
+        .set_read_timeout(Some(Duration::from_secs(5)))
+        .map_err(|error| CliError::network(format!("Failed to read OAuth callback: {error}")))?;
+    let mut reader = BufReader::new(stream.try_clone().map_err(|error| {
+        CliError::network(format!("Failed to inspect OAuth callback stream: {error}"))
+    })?);
+    let mut request_line = String::new();
+    reader
+        .read_line(&mut request_line)
+        .map_err(|error| CliError::network(format!("Failed to read OAuth callback: {error}")))?;
+    let mut parts = request_line.split_whitespace();
+    let method = parts.next().unwrap_or_default();
+    let target = parts.next().unwrap_or_default();
+    if method != "GET" || target.is_empty() {
+        return Err(CliError::auth_required(
+            "OAuth callback did not use the expected GET request.",
+        ));
+    }
+
+    loop {
+        let mut line = String::new();
+        reader.read_line(&mut line).map_err(|error| {
+            CliError::network(format!("Failed to read OAuth callback: {error}"))
+        })?;
+        let line = line.trim_end_matches(['\r', '\n']);
+        if line.is_empty() {
+            break;
+        }
+    }
+
+    Ok(target.to_string())
+}
+
+fn validate_oauth_callback_target(
+    target: &str,
+    expected_state: &str,
+) -> Result<OAuthCallback, CliError> {
+    let target = target.split('#').next().unwrap_or(target);
+    let path_and_query = if let Some((_, rest)) = target.split_once("://") {
+        rest.find('/').map(|index| &rest[index..]).unwrap_or("/")
+    } else {
+        target
+    };
+    let (path, query) = path_and_query
+        .split_once('?')
+        .unwrap_or((path_and_query, ""));
+    if path != "/callback" {
+        return Err(CliError::auth_required(
+            "OAuth callback path did not match /callback.",
+        ));
+    }
+
+    let params = parse_query_params(query)?;
+    if let Some(error) = params.get("error") {
+        let message = params
+            .get("error_description")
+            .filter(|description| !description.is_empty())
+            .unwrap_or(error);
+        return Err(CliError::auth_required(format!(
+            "OAuth login failed: {message}"
+        )));
+    }
+
+    let state = params
+        .get("state")
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| CliError::auth_required("OAuth callback did not include state."))?;
+    if state != expected_state {
+        return Err(CliError::auth_required(
+            "OAuth callback state did not match the login request.",
+        ));
+    }
+
+    let code = params
+        .get("code")
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| CliError::auth_required("OAuth callback did not include code."))?;
+
+    Ok(OAuthCallback {
+        code: code.clone(),
+        state: state.clone(),
+    })
+}
+
+fn parse_query_params(query: &str) -> Result<BTreeMap<String, String>, CliError> {
+    let mut params = BTreeMap::new();
+    for pair in query.split('&').filter(|pair| !pair.is_empty()) {
+        let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+        params.insert(percent_decode_query(key)?, percent_decode_query(value)?);
+    }
+    Ok(params)
+}
+
+fn percent_decode_query(value: &str) -> Result<String, CliError> {
+    let bytes = value.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'+' => {
+                decoded.push(b' ');
+                index += 1;
+            }
+            b'%' if index + 2 < bytes.len() => {
+                let high = hex_value(bytes[index + 1]).ok_or_else(|| {
+                    CliError::auth_required("OAuth callback included invalid percent encoding.")
+                })?;
+                let low = hex_value(bytes[index + 2]).ok_or_else(|| {
+                    CliError::auth_required("OAuth callback included invalid percent encoding.")
+                })?;
+                decoded.push((high << 4) | low);
+                index += 3;
+            }
+            b'%' => {
+                return Err(CliError::auth_required(
+                    "OAuth callback included invalid percent encoding.",
+                ));
+            }
+            byte => {
+                decoded.push(byte);
+                index += 1;
+            }
+        }
+    }
+
+    String::from_utf8(decoded).map_err(|_| {
+        CliError::auth_required("OAuth callback included invalid UTF-8 in query parameters.")
+    })
+}
+
+fn hex_value(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
+}
+
+fn write_oauth_callback_response(
+    stream: &mut TcpStream,
+    status: u16,
+    title: &str,
+    message: &str,
+) -> io::Result<()> {
+    let reason = if status == 200 { "OK" } else { "Bad Request" };
+    let body = format!(
+        "<!doctype html><html><head><meta charset=\"utf-8\"><title>{}</title></head><body><h1>{}</h1><p>{}</p></body></html>",
+        html_escape(title),
+        html_escape(title),
+        html_escape(message)
+    );
+    write!(
+        stream,
+        "HTTP/1.1 {status} {reason}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        body.len(),
+        body
+    )
+}
+
+fn html_escape(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
+fn exchange_oauth_code(
+    settings: &LoginAuthSettings,
+    code: &str,
+    code_verifier: &str,
+    redirect_uri: &str,
+) -> Result<OAuthTokenResponse, CliError> {
+    let token_url = format!("{}/oauth/token", auth_base_url(&settings.domain));
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .build()
+        .map_err(|error| CliError::network(format!("Failed to create HTTP client: {error}")))?;
+    let form_body = oauth_form_body(&[
+        ("grant_type", "authorization_code"),
+        ("client_id", settings.client_id.as_str()),
+        ("code", code),
+        ("code_verifier", code_verifier),
+        ("redirect_uri", redirect_uri),
+    ]);
+    let response = client
+        .post(token_url)
+        .header(reqwest::header::ACCEPT, "application/json")
+        .header(reqwest::header::USER_AGENT, USER_AGENT)
+        .header(
+            reqwest::header::CONTENT_TYPE,
+            "application/x-www-form-urlencoded",
+        )
+        .body(form_body)
+        .send()
+        .map_err(|error| CliError::network(format!("OAuth token exchange failed: {error}")))?;
+    let status = response.status();
+    let status_code = status.as_u16();
+    let text = response.text().map_err(|error| {
+        CliError::network(format!("Failed to read OAuth token response: {error}"))
+    })?;
+
+    if !status.is_success() {
+        let parsed = serde_json::from_str::<Value>(&text).ok();
+        let message = parsed
+            .as_ref()
+            .and_then(http_error_message)
+            .unwrap_or_else(|| format!("HTTP {status_code}"));
+        return Err(CliError::http(
+            status_code,
+            format!("OAuth token exchange failed: {message}"),
+            None,
+        ));
+    }
+
+    serde_json::from_str::<OAuthTokenResponse>(&text).map_err(|error| {
+        CliError::config(format!(
+            "OAuth token exchange returned invalid JSON: {error}"
+        ))
+    })
+}
+
+fn oauth_form_body(params: &[(&str, &str)]) -> String {
+    params
+        .iter()
+        .map(|(key, value)| format!("{}={}", percent_encode(key), percent_encode(value)))
+        .collect::<Vec<_>>()
+        .join("&")
 }
 
 fn render_auth_logout(cli: &Cli) -> Result<String, CliError> {
@@ -6707,7 +7246,7 @@ fn render_auth_status_human(status: &AuthStatusOutput) -> String {
     } else if status.access_token_present && status.access_token_expired {
         "Access token is present but expired.\n".to_string()
     } else {
-        "Not authenticated. Use `smesh auth login --access-token <token>` or set SMESH_TOKEN.\n"
+        "Not authenticated. Run `smesh auth login` or use `smesh auth login --access-token <token>` for non-interactive token auth.\n"
             .to_string()
     }
 }
@@ -6991,4 +7530,173 @@ fn write_private_file(path: &Path, contents: &[u8]) -> io::Result<()> {
 #[cfg(not(unix))]
 fn write_private_file(path: &Path, contents: &[u8]) -> io::Result<()> {
     fs::write(path, contents)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{BufRead, BufReader, Read, Write};
+    use std::net::{TcpListener, TcpStream};
+    use std::thread;
+
+    #[test]
+    fn pkce_generation_shape_and_known_challenge() {
+        let pkce = generate_pkce_pair().expect("pkce pair");
+
+        assert_eq!(pkce.verifier.len(), 43);
+        assert_eq!(pkce.challenge.len(), 43);
+        assert!(pkce
+            .verifier
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_')));
+        assert!(pkce
+            .challenge
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_')));
+        assert_eq!(
+            pkce_challenge("dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"),
+            "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
+        );
+    }
+
+    #[test]
+    fn authorization_url_contains_pkce_loopback_and_auth0_parameters() {
+        let settings = LoginAuthSettings {
+            domain: "example.auth0.com".to_string(),
+            client_id: "client test".to_string(),
+            audience: "https://api.example.test".to_string(),
+        };
+
+        let url = build_authorization_url(
+            &settings,
+            "http://127.0.0.1:49152/callback",
+            "state-test",
+            "challenge-test",
+        );
+
+        assert!(url.starts_with("https://example.auth0.com/authorize?"));
+        assert!(url.contains("response_type=code"));
+        assert!(url.contains("client_id=client%20test"));
+        assert!(url.contains("redirect_uri=http%3A%2F%2F127.0.0.1%3A49152%2Fcallback"));
+        assert!(url.contains("scope=openid%20profile%20email%20offline_access"));
+        assert!(url.contains("audience=https%3A%2F%2Fapi.example.test"));
+        assert!(url.contains("state=state-test"));
+        assert!(url.contains("code_challenge=challenge-test"));
+        assert!(url.contains("code_challenge_method=S256"));
+    }
+
+    #[test]
+    fn callback_validation_accepts_matching_state_and_rejects_mismatch() {
+        let callback = validate_oauth_callback_target(
+            "/callback?code=code-test&state=state-test",
+            "state-test",
+        )
+        .expect("valid callback");
+
+        assert_eq!(
+            callback,
+            OAuthCallback {
+                code: "code-test".to_string(),
+                state: "state-test".to_string()
+            }
+        );
+
+        let error =
+            validate_oauth_callback_target("/callback?code=code-test&state=other", "state-test")
+                .expect_err("state mismatch");
+        assert_eq!(error.exit_code(), 4);
+        assert!(error.to_string().contains("state did not match"));
+    }
+
+    #[test]
+    fn token_exchange_posts_pkce_form_and_parses_response() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind token server");
+        let address = listener.local_addr().expect("local address");
+        let handle = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept token request");
+            let request = read_test_http_request(&mut stream);
+            let body = r#"{"access_token":"access-from-server","refresh_token":"refresh-from-server","expires_in":3600,"token_type":"Bearer"}"#;
+            write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            )
+            .expect("write token response");
+            request
+        });
+        let settings = LoginAuthSettings {
+            domain: format!("http://{address}"),
+            client_id: "client-test".to_string(),
+            audience: "https://api.example.test".to_string(),
+        };
+
+        let token = exchange_oauth_code(
+            &settings,
+            "code-test",
+            "verifier-test",
+            "http://127.0.0.1:49152/callback",
+        )
+        .expect("token exchange");
+
+        assert_eq!(token.access_token.as_deref(), Some("access-from-server"));
+        assert_eq!(token.refresh_token.as_deref(), Some("refresh-from-server"));
+        assert_eq!(token.expires_in, Some(3600));
+        assert_eq!(token.token_type.as_deref(), Some("Bearer"));
+
+        let request = handle.join().expect("token server thread");
+        assert_eq!(request.method, "POST");
+        assert_eq!(request.path, "/oauth/token");
+        assert!(request.body.contains("grant_type=authorization_code"));
+        assert!(request.body.contains("client_id=client-test"));
+        assert!(request.body.contains("code=code-test"));
+        assert!(request.body.contains("code_verifier=verifier-test"));
+        assert!(request
+            .body
+            .contains("redirect_uri=http%3A%2F%2F127.0.0.1%3A49152%2Fcallback"));
+        assert!(!request.body.contains("access-from-server"));
+        assert!(!request.body.contains("refresh-from-server"));
+    }
+
+    #[derive(Debug)]
+    struct TestHttpRequest {
+        method: String,
+        path: String,
+        body: String,
+    }
+
+    fn read_test_http_request(stream: &mut TcpStream) -> TestHttpRequest {
+        let mut reader = BufReader::new(stream.try_clone().expect("clone stream"));
+        let mut request_line = String::new();
+        reader
+            .read_line(&mut request_line)
+            .expect("read request line");
+        let mut parts = request_line.split_whitespace();
+        let method = parts.next().unwrap_or_default().to_string();
+        let path = parts.next().unwrap_or_default().to_string();
+
+        let mut content_length = 0usize;
+        loop {
+            let mut line = String::new();
+            reader.read_line(&mut line).expect("read header line");
+            let line = line.trim_end_matches(['\r', '\n']);
+            if line.is_empty() {
+                break;
+            }
+            if let Some((name, value)) = line.split_once(':') {
+                if name.trim().eq_ignore_ascii_case("content-length") {
+                    content_length = value.trim().parse().expect("content length");
+                }
+            }
+        }
+
+        let mut body = vec![0u8; content_length];
+        reader.read_exact(&mut body).expect("read request body");
+
+        TestHttpRequest {
+            method,
+            path,
+            body: String::from_utf8(body).expect("utf8 body"),
+        }
+    }
 }

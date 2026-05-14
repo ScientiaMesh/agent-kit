@@ -17,6 +17,34 @@ smesh --output ndjson capture status "$CAPTURE_ID"
 smesh --json search --mesh-id "$SMESH_MESH_ID" "project memory"
 ```
 
+## Authentication For Agents
+
+Agents and CI should continue to use non-interactive token auth. Browser login
+is available for humans with `smesh auth login`, but it opens a system browser
+and waits for a localhost callback, so it is not appropriate for unattended
+automation.
+
+Recommended agent auth:
+
+```bash
+export SMESH_AGENT_MODE=1
+export SMESH_TOKEN="<access-token>"
+export SMESH_MESH_ID="<mesh-id>"
+smesh --json auth status
+```
+
+To persist a profile from an automation-provided token, use:
+
+```bash
+smesh --json auth login --access-token "$SMESH_TOKEN" --mesh-id "$SMESH_MESH_ID"
+```
+
+For remote human sessions, `smesh auth login --no-open-browser` prints the
+Auth0 URL to stderr and waits for the loopback callback. Machine stdout remains
+a single JSON document or NDJSON event and does not include bearer or refresh
+tokens. The browser must be able to reach the printed `127.0.0.1:<port>` on the
+same machine running `smesh`; otherwise, use token auth for that session.
+
 ## Stream Contract
 
 - stdout is the only machine data stream.

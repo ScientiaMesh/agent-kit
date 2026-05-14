@@ -1917,25 +1917,27 @@ fn auth_status_ndjson_serializes_event_shape() {
 }
 
 #[test]
-fn auth_login_without_token_returns_json_error() {
-    let config = temp_config_path("unsupported-login");
+fn auth_login_browser_timeout_returns_json_error_without_old_placeholder() {
+    let config = temp_config_path("browser-login-timeout");
     let output = smesh_command()
         .arg("--json")
         .arg("--config")
         .arg(&config)
         .arg("auth")
         .arg("login")
+        .arg("--no-open-browser")
+        .arg("--callback-timeout-seconds")
+        .arg("1")
         .output()
         .expect("run auth login");
 
-    assert_eq!(output.status.code(), Some(6));
+    assert_eq!(output.status.code(), Some(2));
     let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
     let value: serde_json::Value = serde_json::from_str(stdout.trim()).expect("valid JSON error");
 
-    assert!(value["error"]
-        .as_str()
-        .expect("error string")
-        .contains("Browser login is not yet wired"));
+    let error = value["error"].as_str().expect("error string");
+    assert!(error.contains("Timed out after 1 seconds"));
+    assert!(!error.contains("Browser login is not yet wired"));
     assert_eq!(value["status"], serde_json::Value::Null);
     assert_eq!(value["details"], serde_json::Value::Null);
 }
@@ -1989,6 +1991,35 @@ fn auth_login_access_token_writes_config_without_printing_secret() {
             & 0o777;
         assert_eq!(mode, 0o600);
     }
+}
+
+#[test]
+fn auth_login_access_token_ndjson_outputs_event_without_secret() {
+    let config = temp_config_path("token-login-ndjson");
+    let output = smesh_command()
+        .arg("--output")
+        .arg("ndjson")
+        .arg("--config")
+        .arg(&config)
+        .arg("auth")
+        .arg("login")
+        .arg("--access-token")
+        .arg("stored-token-for-ndjson-test")
+        .arg("--refresh-token")
+        .arg("stored-refresh-for-ndjson-test")
+        .output()
+        .expect("run token login ndjson");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("utf8 stdout");
+    assert!(!stdout.contains("stored-token-for-ndjson-test"));
+    assert!(!stdout.contains("stored-refresh-for-ndjson-test"));
+    let value: serde_json::Value = serde_json::from_str(stdout.trim()).expect("valid NDJSON");
+
+    assert_eq!(value["type"], "auth.login");
+    assert_eq!(value["status"], "logged_in");
+    assert_eq!(value["access_token_present"], true);
+    assert_eq!(value["refresh_token_present"], true);
 }
 
 #[test]
